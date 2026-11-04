@@ -28,8 +28,8 @@ X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)  # valor real de la fuente 0 en el i
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="results")
-    p.add_argument("--out", default="map_vs_hmc_error.png")
+    p.add_argument("--results_dir", default="experiments/map_vs_hmc/results")
+    p.add_argument("--out", default="experiments/map_vs_hmc/error.png")
     args = p.parse_args()
 
     files = sorted(glob.glob(f"{args.results_dir}/size_*.npz"))
