@@ -46,3 +46,8 @@ Thumbs.db
 *.err
 *.out
 *.npz
+
+# Virtual environments
+venv/
+sc_venv/
+.venv/
