@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 from jax import random, grad, jit
 from time import time
+from jax.scipy.stats import multivariate_normal as mvn
 
 
 def build_energy_functions(log_target, Sigma=None):
@@ -8,11 +9,7 @@ def build_energy_functions(log_target, Sigma=None):
         if Sigma is None:
             return 0.5 * jnp.sum(nu**2, axis=-1) if nu.ndim > 1 else 0.5 * jnp.sum(nu**2)
         else:
-            # Asumiendo Sigma diagonal (vector de tamaño D)
-            if nu.ndim == 1:
-                return 0.5 * jnp.sum(nu**2 * Sigma)
-            else:
-                return 0.5 * jnp.sum(nu**2 * Sigma, axis=-1)
+            return 0.5 * jnp.sum((nu@Sigma)*nu, axis=-1)
     
     def potential_energy(theta):
         return -log_target(theta).squeeze()
@@ -35,7 +32,7 @@ def leapfrog(theta0, nu0, grad_pot_energy_fun, num_steps, step_size, Sigma=None,
             theta = theta + step_size * nu
         else:
             # Multiplicación elemento a elemento si Sigma es diagonal
-            theta = theta + step_size * (Sigma * nu)
+            theta = theta + step_size * (nu@Sigma)
             
         nu = nu - 0.5 * step_size * grad_pot_energy_fun(theta)
 
@@ -70,7 +67,7 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
         if Sigma is None:
             nu = random.normal(key_momentum, shape=param_shape)
         else:
-            nu = random.normal(key_momentum, shape=param_shape) / jnp.sqrt(Sigma)
+            nu = random.multivariate_normal(key_momentum, mean=jnp.zeros(param_shape), cov=jnp.linalg.inv(Sigma))
 
         theta_star, nu_star = leapfrog(theta, nu, grad_pot_energy_fun, num_leapfrog_steps, step_size, Sigma=Sigma, full_trajectory=False)
 
@@ -90,8 +87,8 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
 
     return jnp.vstack(thetas)
 
-def HMC_inverse_mass(log_target, num_iterations, theta0, Sigma, num_leapfrog_steps=10, step_size=1e-1, seed=0):
-    thetas_warmup = HMC(log_target, num_iterations//10, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, Sigma=Sigma, seed=seed)
+def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, seed=0):
+    thetas_warmup = HMC(log_target, num_iterations//5, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
     Sigma_est = jnp.cov(thetas_warmup.T)
     print(f"Estimated covariance matrix:\n{Sigma_est}\n")
     

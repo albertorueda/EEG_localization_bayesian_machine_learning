@@ -9,3 +9,7 @@ Inverse problem using Bayesian machine learnging: EEG localization in source spa
 - t-student
 - spike and slab
 - horseshoe
+
+
+
+ 500 hundred, complete inverse, investigate more hmc and smc

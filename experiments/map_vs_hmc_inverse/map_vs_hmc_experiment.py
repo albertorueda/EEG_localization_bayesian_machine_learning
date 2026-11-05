@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from lib.distributions import SpikeAndSlabPrior, Posterior
-from lib.hmc import HMC
+from lib.hmc import HMC_inverse_mass
 from lib.map_solution import get_map_estimate
 
 slab_var, spike_var, slab_prob = 0.1, 0.001, 0.5
