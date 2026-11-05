@@ -92,5 +92,5 @@ def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, 
     Sigma_est = jnp.cov(thetas_warmup.T)
     print(f"Estimated covariance matrix:\n{Sigma_est}\n")
     
-    thetas = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, Sigma=Sigma_est, seed=seed)
+    thetas = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps//5, step_size=1000*step_size, Sigma=Sigma_est, seed=seed)
     return thetas

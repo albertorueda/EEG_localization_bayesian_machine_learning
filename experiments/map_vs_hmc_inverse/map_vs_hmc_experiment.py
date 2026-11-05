@@ -35,14 +35,14 @@ n_channels, n_sources = L.shape
 sizes = sorted(set(range(1, n_sources + 1, 10)) | {n_channels})
 
 # Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
-if len(sys.argv) < 2:
-    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
-    sys.exit(0)
-
-job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
-size = sizes[job_idx - 1]
-print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
-
+#if len(sys.argv) < 2:
+#    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
+#    sys.exit(0)
+#
+#job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
+#size = sizes[job_idx - 1]
+#print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
+size = 80
 # ---------- Datos sintéticos (misma semilla en TODOS los jobs) ----------
 tid = 62
 fs = int(info["sfreq"])
@@ -67,13 +67,14 @@ t0 = time()
 map_solution = get_map_estimate(post.log_posterior, theta0=jnp.zeros(size))
 map_time = time() - t0
 map_solution = np.asarray(map_solution).ravel()
+print(f"MAP: {map_solution}", flush=True)
 map_norm_diff = float(np.linalg.norm(map_solution - x_small[:, tid]))
 
 # ---------- HMC ----------
 t0 = time()
 theta_map = jnp.expand_dims(map_solution, axis=0)
-thetas = HMC(log_target=post.log_posterior, num_iterations=2000, theta0=theta_map,
-             num_leapfrog_steps=250, step_size=1e-4, seed=0)
+thetas = HMC_inverse_mass(log_target=post.log_posterior, num_iterations=2000, theta0=theta_map,
+             num_leapfrog_steps=250, step_size=1e-5, seed=0)
 hmc_time = time() - t0
 hmc_mean = jnp.mean(thetas[100:], axis=0)
 hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))
