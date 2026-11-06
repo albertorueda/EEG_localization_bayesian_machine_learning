@@ -19,26 +19,31 @@ def reweight(log_p_t, theta, itt):
     weights = jnp.exp(log_weights - logsumexp(log_weights))  # Normalize the weights to sum to 1
     return weights
 
-def SMC(log_prior, log_likelihood_t, theta0, num_iterations, S=10, num_leapfrog_steps=10, step_size=1e-1, seed=0):
+def SMC(log_prior, log_likelihood_t, log_target_ini, theta0, num_iterations, S=10, num_leapfrog_steps_ini=10, num_leapfrog_steps_smc=10, step_size=1e-1, seed=0):
     """ Implements the basic SMC algorithm for D-dimensional target distribution specified by log_target
     
     Arguments:
-    log_prior           -- Function implementing the logarithm of the prior distribution (up to an additive constant). The function must return scalar values and be compatible with theta0
-    log_likelihood_t    -- Function implementing the logarithm of the likelihood for a given time t. The function must return scalar values and be compatible with theta0
-    theta0              -- Initial position, JaX array of shape 1xD, where D is the dimension
-    num_iterations      -- Number of iterations
-    S                   -- Number of steps in muatation step
-    num_leapfrog_steps  -- Number of leapfrog steps
-    step_size           -- Step-size eta for leapfrog integration
-    seed                -- seed
-    verbose             -- Whether to print progress information
+    log_prior               -- Function implementing the logarithm of the prior distribution (up to an additive constant). The function must return scalar values and be compatible with theta0
+    log_likelihood_t        -- Function implementing the logarithm of the likelihood for a given time t. The function must return scalar values and be compatible with theta0
+    log_target_ini          -- Function implementing the logarithm of the likelihood to obtain mass matrix. The function must return scalar values and be compatible with theta0
+    theta0                  -- Initial position, JaX array of shape 1xD, where D is the dimension
+    num_iterations          -- Number of iterations
+    S                       -- Number of steps in muatation step
+    num_leapfrog_steps_ini  -- Number of leapfrog steps for the initial stage
+    num_leapfrog_steps_smc  -- Number of leapfrog steps for the SMC stage
+    step_size               -- Step-size eta for leapfrog integration
+    seed                    -- seed
+    verbose                 -- Whether to print progress information
     
-    Returns:
-    thetas              -- MCMC samples, JaX array of shape (num_iterations+1, D)
+    Returns:    
+    thetas                  -- MCMC samples, JaX array of shape (num_iterations+1, D)
     """
     N = theta0.shape[0]  # Number of particles
     key = random.PRNGKey(seed)
     theta, thetas = theta0, [theta0]   # list of SMC samples
+    
+    thetas_warmup = HMC(log_target_ini, num_iterations//5, theta0, num_leapfrog_steps=num_leapfrog_steps_ini, step_size=step_size, seed=seed)
+    Sigma_est = jnp.cov(thetas_warmup.T)
     
     weights = jnp.ones(N) / N  # Initialize weights uniformly
     
@@ -55,7 +60,7 @@ def SMC(log_prior, log_likelihood_t, theta0, num_iterations, S=10, num_leapfrog_
         with contextlib.redirect_stdout(io.StringIO()):
             for i in range(N):
                 theta_i = theta[i:i+1]  # Current particle
-                chain = HMC(log_target_t, S, theta_i, num_leapfrog_steps, step_size, seed=seed + itt * N + i)  # Take the last sample from HMC as the new theta
+                chain = HMC(log_target_t, S, theta_i, num_leapfrog_steps_smc, step_size*10000, seed=seed + itt * N + i)  # Take the last sample from HMC as the new theta
                 new.append(chain[-1])  # Append the last sample of the chain to new particles
         theta = jnp.vstack(new)  # Stack the new particles into a single array
         thetas.append(theta)

@@ -32,7 +32,7 @@ n_channels, n_sources = L.shape
 
 # `size` = nº de FUENTES (columnas de L). Siempre se usan TODOS los sensores.
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
-sizes = sorted(set(range(1, n_sources + 1, 10)) | {n_channels})
+sizes = sorted(set(range(5, 150, 5)) | {150, 1})
 
 # Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
 if len(sys.argv) < 2:

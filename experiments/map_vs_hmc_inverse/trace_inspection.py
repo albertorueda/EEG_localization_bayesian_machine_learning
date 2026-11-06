@@ -29,10 +29,10 @@ import matplotlib.pyplot as plt
 A = 0.5
 TID = 62
 FS = 250
-BURN_IN = 100
+BURN_IN = 400
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 
-DEFAULT_TARGETS = [80]  # last one -> largest available
+DEFAULT_TARGETS = [5, 15, 30, 50, 75, 85, 90, 95, 100, 150, 200, 250]  # last one -> largest available
 
 
 def available_sizes(results_dir):
