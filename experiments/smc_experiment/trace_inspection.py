@@ -40,7 +40,7 @@ import mne
 slab_var, spike_var, slab_prob = 0.1, 0.001, 0.05
 SpikeAndSlab = SpikeAndSlabPrior(slab_var=slab_var, spike_var=spike_var, slab_prob=slab_prob)
 
-# Must match map_vs_smc
+# Must match map_vs_smc_experiment.py
 A = 0.5
 TID = 62
 FS = 250
@@ -105,11 +105,11 @@ def closest(sizes, target):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="experiments/map_vs_smc/results")
+    p.add_argument("--results_dir", default="experiments/smc_experiment/results")
     p.add_argument("--sizes", type=int, nargs="*", default=None)
     p.add_argument("--n_inactive", type=int, default=5,
                    help="number of inactive sources to plot in panel 2")
-    p.add_argument("--out", default="experiments/map_vs_smc/smc_traces.png")
+    p.add_argument("--out", default="experiments/smc_experiment/smc_traces.png")
     args = p.parse_args()
 
     files = available_sizes(args.results_dir)

@@ -1,14 +1,14 @@
 """
 aggregate_results.py
 
-Lee results/size_XXXX.npz (un fichero por job de map_vs_hmc) y dibuja, para MAP y HMC:
+Lee results/size_XXXX.npz (un fichero por job de map_vs_smc_experiment.py) y dibuja, para SMC (posterior mean):
   - error en la fuente activa:      |x_hat[0] - x_true[0]|
   - actividad en fuentes inactivas: ||x_hat[1:]||_2
 frente a size, en una sola figura con dos paneles.
 
 Uso:
-    python aggregate_results.py
-    python aggregate_results.py --results_dir results --out map_vs_hmc_error.png
+    python experiments/smc_experiment/aggregate_results.py
+    python experiments/smc_experiment/aggregate_results.py --results_dir experiments/smc_experiment/results --out experiments/smc_experiment/error.png
 """
 import argparse
 import glob
@@ -19,7 +19,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Deben coincidir con map_vs_hmc
+# Deben coincidir con map_vs_smc_experiment.py
 A = 0.5
 TID = 62
 FS = 250
@@ -28,8 +28,8 @@ X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)  # valor real de la fuente 0 en el i
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="experiments/map_vs_hmc/results")
-    p.add_argument("--out", default="experiments/map_vs_hmc/error.png")
+    p.add_argument("--results_dir", default="experiments/smc_experiment/results")
+    p.add_argument("--out", default="experiments/smc_experiment/error.png")
     args = p.parse_args()
 
     files = sorted(glob.glob(f"{args.results_dir}/size_*.npz"))
@@ -39,26 +39,19 @@ def main():
     rows = []
     for f in files:
         d = np.load(f)
-        m, h = d["map_mean"], d["hmc_mean"]
-        rows.append((
-            int(d["size"]),
-            abs(m[0] - X_TRUE_0), abs(h[0] - X_TRUE_0),
-            np.linalg.norm(m[1:]), np.linalg.norm(h[1:]),
-        ))
+        x_hat = d["smc_mean"]
+        rows.append((int(d["size"]), abs(x_hat[0] - X_TRUE_0), np.linalg.norm(x_hat[1:])))
 
     rows = np.array(sorted(rows))
-    size = rows[:, 0]
-    map_act, hmc_act, map_off, hmc_off = rows[:, 1], rows[:, 2], rows[:, 3], rows[:, 4]
+    size, err_act, act_off = rows[:, 0], rows[:, 1], rows[:, 2]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharex=True)
 
-    axes[0].plot(size, map_act, "o-", ms=3, label="MAP")
-    axes[0].plot(size, hmc_act, "s-", ms=3, label="HMC (posterior mean)")
+    axes[0].plot(size, err_act, "s-", ms=3, label="SMC (posterior mean)")
     axes[0].set_title("Error in active source")
     axes[0].set_ylabel(r"$|\hat{x}_0 - x_{true,0}|$")
 
-    axes[1].plot(size, map_off, "o-", ms=3, label="MAP")
-    axes[1].plot(size, hmc_off, "s-", ms=3, label="HMC (posterior mean)")
+    axes[1].plot(size, act_off, "s-", ms=3, label="SMC (posterior mean)")
     axes[1].set_title("Activity in inactive sources")
     axes[1].set_ylabel(r"$\|\hat{x}_{1:}\|_2$")
 

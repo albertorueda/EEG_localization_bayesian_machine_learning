@@ -25,7 +25,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Must match map_vs_hmc
+# Must match hmc_inverse_experiment.py
 A = 0.5
 TID = 62
 FS = 250
@@ -52,11 +52,11 @@ def closest(sizes, target):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="experiments/map_vs_hmc_inverse/results")
+    p.add_argument("--results_dir", default="experiments/hmc_inverse_map_ini_experiment/results")
     p.add_argument("--sizes", type=int, nargs="*", default=None)
     p.add_argument("--n_inactive", type=int, default=5,
                    help="number of inactive sources to plot in panel 2")
-    p.add_argument("--out", default="experiments/map_vs_hmc_inverse/hmc_traces.png")
+    p.add_argument("--out", default="experiments/hmc_inverse_map_ini_experiment/hmc_traces.png")
     args = p.parse_args()
 
     files = available_sizes(args.results_dir)

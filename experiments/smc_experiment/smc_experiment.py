@@ -1,3 +1,4 @@
+from jax import random
 import sys, os
 import jax
 import jax.numpy as jnp
@@ -12,7 +13,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from lib.distributions import SpikeAndSlabPrior, Posterior
-from lib.hmc import HMC_inverse_mass
+from lib.smc import SMC
+from lib.map_solution import get_map_estimate
 
 slab_var, spike_var, slab_prob = 0.1, 0.001, 0.05
 SpikeAndSlab = SpikeAndSlabPrior(slab_var=slab_var, spike_var=spike_var, slab_prob=slab_prob)
@@ -31,17 +33,17 @@ n_channels, n_sources = L.shape
 
 # `size` = nº de FUENTES (columnas de L). Siempre se usan TODOS los sensores.
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
-sizes = sorted(set(range(5, 301, 5)) | {1})
-
-# Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
-if len(sys.argv) < 2:
-    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
-    sys.exit(0)
-
-job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
-size = sizes[job_idx - 1]
-print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
-
+#sizes = sorted(set(range(5, 150, 5)) | {150, 1})
+#
+## Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
+#if len(sys.argv) < 2:
+#    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
+#    sys.exit(0)
+#
+#job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
+#size = sizes[job_idx - 1]
+#print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
+size = 100
 # ---------- Datos sintéticos (misma semilla en TODOS los jobs) ----------
 tid = 62
 fs = int(info["sfreq"])
@@ -61,26 +63,35 @@ Y = L_small @ x_small + e            # idéntico en todos los jobs (solo la fuen
 y_tid = Y[:, tid]
 post = Posterior(prior_distribution=SpikeAndSlab, L=L_small, Y=Y, beta=beta, y_tid=y_tid)
 
-
-# ---------- HMC ----------
+# ---------- SMC ----------
+N = 1000                             # tiene que ser > size
+theta0 = SpikeAndSlab.sample_prior(random.PRNGKey(0), num_samples=N, num_features=size)
+ 
 t0 = time()
-theta_0 = jnp.zeros(size)
-thetas = HMC_inverse_mass(log_target=post.log_posterior, num_iterations=2000, theta0=theta_0,
-             num_leapfrog_steps=250, step_size=1e-5, seed=0)
-hmc_time = time() - t0
-hmc_mean = jnp.mean(thetas[400:], axis=0)
-hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))
-
-print(f"n_src: {size}, HMC norm diff: {hmc_norm_diff:.4f}", flush=True)
-
-# ---------- Guardar (un fichero por job) ----------
+smc_particles, hist = SMC(
+    log_prior=SpikeAndSlab.log_prior,
+    log_lik=post.log_likelihood,     # verosimilitud completa; el SMC aplica lambda
+    theta0=theta0,
+    seed=0,
+    step_size=0.1, n_leapfrog=10, n_mcmc=5, ess_frac=0.5,
+)
+smc_time = time() - t0
+ 
+smc_param = smc_particles.mean(axis=0)           # (size,) media posterior
+smc_norm_diff = float(jnp.linalg.norm(smc_param - x_small[:, tid]))
+ 
+print(f"n_src: {size}, SMC norm diff: {smc_norm_diff:.4f}, time: {smc_time:.1f}s", flush=True)
+ 
+# ---------- Guardar ----------
 script_dir = os.path.dirname(os.path.abspath(__file__))
 print(f"Guardando resultados en {script_dir}/results/size_{size:04d}.npz", flush=True)
 results_dir = os.path.join(script_dir, "results")
 os.makedirs(results_dir, exist_ok=True)
 np.savez(
-    f"experiments/hmc_inverse_experiment/results/size_{size:04d}.npz",
+    f"experiments/smc_experiment/results/size_{size:04d}.npz",
     size=size, n_channels=n_channels,
-    hmc_mean=np.asarray(hmc_mean), hmc_norm_diff=hmc_norm_diff, hmc_time=hmc_time,
-    thetas=np.asarray(thetas),
+    smc_mean=np.asarray(smc_param), smc_norm_diff=smc_norm_diff, smc_time=smc_time,
+    thetas=np.asarray(smc_particles),
+    lam=np.asarray(hist["lam"]), ess=np.asarray(hist["ess"]),
+    acc=np.asarray(hist["acc"]), logZ=np.asarray(hist["logZ"]),
 )
