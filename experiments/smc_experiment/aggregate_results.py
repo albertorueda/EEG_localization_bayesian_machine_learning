@@ -1,10 +1,13 @@
 """
 aggregate_results.py
 
-Lee results/size_XXXX.npz (un fichero por job de map_vs_smc_experiment.py) y dibuja, para SMC (posterior mean):
-  - error en la fuente activa:      |x_hat[0] - x_true[0]|
-  - actividad en fuentes inactivas: ||x_hat[1:]||_2
+Lee results/size_XXXX.npz (un fichero por job de map_vs_smc_experiment.py) y dibuja, para SMC:
+  - error en la fuente activa:      |x_hat[0] - x_true[0]|   (media posterior y mediana | activa)
+  - actividad en fuentes inactivas: ||x_hat[1:]||_2           (media posterior)
 frente a size, en una sola figura con dos paneles.
+
+"Mediana | activa" = mediana de theta_0 usando solo las particulas con |theta_0| > ACTIVE_THR
+(las que no estan en el spike). Si ninguna particula esta activa, se deja NaN (hueco en la curva).
 
 Uso:
     python experiments/smc_experiment/aggregate_results.py
@@ -24,6 +27,8 @@ A = 0.5
 TID = 62
 FS = 250
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)  # valor real de la fuente 0 en el instante tid
+SPIKE_VAR = 0.001
+ACTIVE_THR = 3 * np.sqrt(SPIKE_VAR)          # ~0.095: por encima, la particula no esta en el spike
 
 
 def main():
@@ -40,14 +45,21 @@ def main():
     for f in files:
         d = np.load(f)
         x_hat = d["smc_mean"]
-        rows.append((int(d["size"]), abs(x_hat[0] - X_TRUE_0), np.linalg.norm(x_hat[1:])))
+        t0 = d["thetas"][:, 0]                       # particulas de la fuente 0
+        active = np.abs(t0) > ACTIVE_THR
+        med_act = np.median(t0[active]) if active.any() else np.nan
+        rows.append((int(d["size"]),
+                     abs(x_hat[0] - X_TRUE_0),
+                     abs(med_act - X_TRUE_0),
+                     np.linalg.norm(x_hat[1:])))
 
     rows = np.array(sorted(rows))
-    size, err_act, act_off = rows[:, 0], rows[:, 1], rows[:, 2]
+    size, err_mean, err_med, act_off = rows[:, 0], rows[:, 1], rows[:, 2], rows[:, 3]
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), sharex=True)
 
-    axes[0].plot(size, err_act, "s-", ms=3, label="SMC (posterior mean)")
+    axes[0].plot(size, err_mean, "s-", ms=3, label="SMC (posterior mean)")
+    axes[0].plot(size, err_med, "o-", ms=3, label="SMC (median | active)")
     axes[0].set_title("Error in active source")
     axes[0].set_ylabel(r"$|\hat{x}_0 - x_{true,0}|$")
 

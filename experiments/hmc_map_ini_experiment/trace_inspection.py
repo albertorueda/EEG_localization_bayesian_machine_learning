@@ -32,7 +32,7 @@ FS = 250
 BURN_IN = 100
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 
-DEFAULT_TARGETS = [11, 31, 51, 71, 201]  # last one -> largest available
+DEFAULT_TARGETS = [11, 31, 51, 71, 101, 201, 301]  # last one -> largest available
 
 
 def available_sizes(results_dir):

@@ -5,12 +5,16 @@ Junta los resultados (results/size_XXXX.npz) de todos los experimentos de barrid
 y los dibuja en la misma figura para poder compararlos:
 
   (a) error en la fuente activa:       |x_hat[0] - x_true[0]|
+      (para SMC, ademas, una segunda linea con la mediana de theta_0 | activa)
   (b) actividad en fuentes inactivas:  ||x_hat[1:]||_2
   (c) error total:                     ||x_hat - x_true||_2   (norm_diff guardado por cada job)
   (d) tiempo de cómputo                (escala log)
 
 La línea vertical discontinua marca size = n_channels (transición sobre -> infradeterminado).
 Los experimentos sin resultados se saltan con un aviso.
+
+"Mediana | activa" = mediana de theta_0 usando solo las particulas con |theta_0| > ACTIVE_THR
+(las que no estan en el spike). Si ninguna esta activa -> NaN (hueco en la curva).
 
 Uso:
     python experiments/compare_experiments.py
@@ -32,6 +36,8 @@ A = 0.5
 TID = 62
 FS = 250
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
+SPIKE_VAR = 0.001
+ACTIVE_THR = 3 * np.sqrt(SPIKE_VAR)          # ~0.095: por encima, la particula no esta en el spike
 
 EXP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -44,6 +50,15 @@ EXPERIMENTS = {
     "hmc_inverse_map_ini": ("hmc_inverse_map_ini_experiment", "hmc", "HMC inverse mass (MAP init)",  "tab:red",  "^", "--"),
     "smc":                 ("smc_experiment",                 "smc", "SMC",                          "tab:green", "D", "-"),
 }
+
+
+def median_active_error(d):
+    """|median(theta_0 | |theta_0| > ACTIVE_THR) - x_true_0| a partir de las particulas guardadas (SMC)."""
+    if "thetas" not in d.files:
+        return np.nan
+    t0 = d["thetas"][:, 0]
+    active = np.abs(t0) > ACTIVE_THR
+    return abs(np.median(t0[active]) - X_TRUE_0) if active.any() else np.nan
 
 
 def load_experiment(folder, prefix):
@@ -61,6 +76,7 @@ def load_experiment(folder, prefix):
             np.linalg.norm(x_hat[1:]),
             float(d[f"{prefix}_norm_diff"]) if f"{prefix}_norm_diff" in d.files else np.nan,
             float(d[f"{prefix}_time"]) if f"{prefix}_time" in d.files else np.nan,
+            median_active_error(d) if prefix == "smc" else np.nan,      # col 5: solo SMC
         ))
     if not rows:
         return None, None
@@ -98,6 +114,10 @@ def main():
         for ax, (col, _, _) in zip(axes, panels):
             ax.plot(size, rows[:, col], color=color, marker=marker, ls=ls, ms=3.5, lw=1.4,
                     mfc="white" if ls == "--" else color, label=f"{label} (n={len(size)})")
+        # linea extra en el panel (a): mediana | activa (solo SMC)
+        if prefix == "smc" and not np.all(np.isnan(rows[:, 5])):
+            axes[0].plot(size, rows[:, 5], color="darkgreen", marker="o", ls="-.", ms=3.5, lw=1.4,
+                         mfc="white", label=f"{label} (median | active)")
         summary.append((label, len(size), np.nanmedian(rows[:, 1]), np.nanmedian(rows[:, 2]),
                         np.nanmedian(rows[:, 3]), np.nanmedian(rows[:, 4])))
 

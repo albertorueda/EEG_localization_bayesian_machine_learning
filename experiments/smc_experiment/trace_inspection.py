@@ -39,7 +39,7 @@ TID = 62
 FS = 250
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 
-DEFAULT_TARGETS = [100]
+DEFAULT_TARGETS = [11, 31, 51, 71, 81, 91, 101, 201, 301]  # last one -> largest available
 
 
 def available_sizes(results_dir):

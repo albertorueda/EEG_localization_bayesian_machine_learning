@@ -63,15 +63,13 @@ y_tid = Y[:, tid]
 post = Posterior(prior_distribution=SpikeAndSlab, L=L_small, Y=Y, beta=beta, y_tid=y_tid)
 
 # ---------- MAP ----------
-map_solution = get_map_estimate(post.log_posterior, theta0=jnp.zeros(size))
-map_solution = np.asarray(map_solution).ravel()
+map_solution = np.asarray(get_map_estimate(post.log_posterior, theta0=jnp.zeros(size))).ravel()
 map_norm_diff = float(np.linalg.norm(map_solution - x_small[:, tid]))
 
 # ---------- HMC ----------
 t0 = time()
-theta_map = jnp.expand_dims(map_solution, axis=0)
-thetas = HMC_inverse_mass(log_target=post.log_posterior, num_iterations=2000, theta0=theta_map,
-             num_leapfrog_steps=250, step_size=1e-5, seed=0)
+thetas = HMC_inverse_mass(log_target=post.log_posterior, num_iterations=2000, theta0=map_solution,
+             num_leapfrog_steps=20, num_warmup=1000, seed=0)
 hmc_time = time() - t0
 hmc_mean = jnp.mean(thetas[400:], axis=0)
 hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))

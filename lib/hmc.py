@@ -1,7 +1,6 @@
 import jax.numpy as jnp
-from jax import random, grad, jit
+from jax import random, grad, jit, hessian
 from time import time
-from jax.scipy.stats import multivariate_normal as mvn
 
 
 def build_energy_functions(log_target, Sigma=None):
@@ -87,13 +86,75 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
 
     return jnp.vstack(thetas)
 
-def get_inverse_mass_matrix(log_target, theta0, num_iterations=200, num_leapfrog_steps=150, step_size=1e-1, seed=0):
-    thetas_warmup = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
-    Sigma_est = jnp.cov(thetas_warmup.T) + 1e-6 * jnp.eye(thetas_warmup.shape[1])  # Add a small value to the diagonal for numerical stability
-    return Sigma_est
+def acceptance_rate(thetas):
+    """Fraction of iterations in which the chain moved (= accepted proposals)."""
+    th = jnp.asarray(thetas)
+    return float(jnp.mean(jnp.any(jnp.diff(th, axis=0) != 0, axis=1)))
+ 
+ 
+def initial_step_size(log_target, theta0, default=1e-2):
+    """12.5.4.2 with Sigma = I: eta_0 ~ smallest marginal std ~ 1 / sqrt(lambda_max(Hessian of -log_target))."""
+    f = lambda th: -log_target(th).squeeze()
+    f_grad = grad(f)
+    H = hessian(f)(theta0)
+    lam_max = float(jnp.linalg.eigvalsh(0.5 * (H + H.T))[-1])
+    return 1.0 / jnp.sqrt(lam_max) if jnp.isfinite(lam_max) and lam_max > 0 else default
+ 
+ 
+def tune_step_size(log_target, theta0, Sigma=None, eta0=1e-2, n_iter=100, lo=0.4, hi=0.8,
+                   max_tries=40, seed=0):
+    """Heuristic of [BZ20] quoted in 12.5.4.2: L = 1, vary eta until acceptance is in [lo, hi].
+    Too low acceptance -> eta / 2; too high -> eta * 1.5. Returns (eta, acceptance)."""
+    eta, best, acc = eta0, None, jnp.nan
+    for _ in range(max_tries):
+        th = HMC(log_target, n_iter, theta0, num_leapfrog_steps=1, step_size=eta, Sigma=Sigma, seed=seed)
+        acc = acceptance_rate(th)
+        if acc >= lo:
+            best = eta if best is None else max(best, eta)
+        if lo <= acc <= hi:
+            return eta, acc
+        eta *= 0.5 if acc < lo else 1.5
+    return (best if best is not None else eta), acc
+ 
+ 
+def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, num_warmup=1000,
+                           seed=0, verbose=True):
+    """theta0: (1, D). Returns thetas (num_iterations + 1, D), like HMC()."""
+    D = theta0.shape[-1]
+ 
+    # 1-2) eta with Sigma = I, L = 1
+    eta0 = initial_step_size(log_target, theta0)
+    eta_I, acc_I = tune_step_size(log_target, theta0, None, eta0, seed=seed)
+ 
+    # 3) warm-up with Sigma = I (moves, because eta is tuned)
+    warm = jnp.asarray(HMC(log_target, num_warmup, theta0, num_leapfrog_steps=num_leapfrog_steps,
+                                 step_size=eta_I, seed=seed))
+    w = warm[num_warmup // 2:]                                   # drop first half
+ 
+    # 4) Sigma = covariance of warm-up samples (12.5.4.3); tiny relative jitter for numerical stability
+    S = jnp.atleast_2d(jnp.cov(w.T))
+    S = S + 1e-6 * jnp.mean(jnp.diag(S)) * jnp.eye(D)
+    Sigma = jnp.asarray(S)
+ 
+    # 5) re-tune eta in the whitened geometry (not in the book)
+    theta_start = jnp.asarray(warm[-1:])                          # (1, D)
+    eta_S, acc_S = tune_step_size(log_target, theta_start, Sigma, 0.1, seed=seed)
+ 
+    if verbose:
+        print(f"[tuned HMC] D={D}  eta0={eta0:.2e}  eta(Sigma=I)={eta_I:.2e} (acc {acc_I:.2f})  "
+              f"warm-up acc={acceptance_rate(warm):.2f}  eta(Sigma)={eta_S:.2e} (acc {acc_S:.2f})", flush=True)
+ 
+    # 6) final chain
+    return HMC(log_target, num_iterations, theta_start, num_leapfrog_steps=num_leapfrog_steps,
+               step_size=eta_S, Sigma=Sigma, seed=seed)
 
-def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, seed=0):
-    Sigma_est = get_inverse_mass_matrix(log_target, theta0, num_iterations//5, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
-    
-    thetas = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps//5, step_size=3000*step_size, Sigma=Sigma_est, seed=seed)
-    return thetas
+#def get_inverse_mass_matrix(log_target, theta0, num_iterations=200, num_leapfrog_steps=150, step_size=1e-1, seed=0):
+#    thetas_warmup = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
+#    Sigma_est = jnp.cov(thetas_warmup.T) + 1e-6 * jnp.eye(thetas_warmup.shape[1])  # Add a small value to the diagonal for numerical stability
+#    return Sigma_est
+#
+#def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, seed=0):
+#    Sigma_est = get_inverse_mass_matrix(log_target, theta0, num_iterations//5, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
+#    
+#    thetas = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps//5, step_size=3000*step_size, Sigma=Sigma_est, seed=seed)
+#    return thetas

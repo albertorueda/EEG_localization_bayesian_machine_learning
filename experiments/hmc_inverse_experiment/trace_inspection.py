@@ -32,7 +32,8 @@ FS = 250
 BURN_IN = 100
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 
-DEFAULT_TARGETS = [80]  # last one -> largest available
+DEFAULT_TARGETS = [11, 31, 51, 71, 101, 201, 301]  # last one -> largest available
+
 
 
 def available_sizes(results_dir):
@@ -52,11 +53,11 @@ def closest(sizes, target):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="experiments/hmc_inverse_map_ini_experiment/results")
+    p.add_argument("--results_dir", default="experiments/hmc_inverse_experiment/results")
     p.add_argument("--sizes", type=int, nargs="*", default=None)
     p.add_argument("--n_inactive", type=int, default=5,
-                   help="number of inactive sources to plot in panel 2")
-    p.add_argument("--out", default="experiments/hmc_inverse_map_ini_experiment/hmc_traces.png")
+                   help="number of inactive sources to ºplot in panel 2")
+    p.add_argument("--out", default="experiments/hmc_inverse_experiment/hmc_traces.png")
     args = p.parse_args()
 
     files = available_sizes(args.results_dir)

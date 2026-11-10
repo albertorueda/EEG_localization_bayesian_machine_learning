@@ -66,7 +66,7 @@ post = Posterior(prior_distribution=SpikeAndSlab, L=L_small, Y=Y, beta=beta, y_t
 t0 = time()
 theta_0 = jnp.zeros(size)
 thetas = HMC_inverse_mass(log_target=post.log_posterior, num_iterations=2000, theta0=theta_0,
-             num_leapfrog_steps=250, step_size=1e-5, seed=0)
+             num_leapfrog_steps=20, num_warmup=1000, seed=0)
 hmc_time = time() - t0
 hmc_mean = jnp.mean(thetas[400:], axis=0)
 hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))

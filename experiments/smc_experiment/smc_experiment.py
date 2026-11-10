@@ -33,17 +33,17 @@ n_channels, n_sources = L.shape
 
 # `size` = nº de FUENTES (columnas de L). Siempre se usan TODOS los sensores.
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
-#sizes = sorted(set(range(5, 150, 5)) | {150, 1})
-#
-## Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
-#if len(sys.argv) < 2:
-#    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
-#    sys.exit(0)
-#
-#job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
-#size = sizes[job_idx - 1]
-#print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
-size = 100
+sizes = sorted(set(range(5, 301, 5)) | {300, 1})
+
+# Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
+if len(sys.argv) < 2:
+    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J smc[1-{len(sizes)}]")
+    sys.exit(0)
+
+job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
+size = sizes[job_idx - 1]
+print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
+
 # ---------- Datos sintéticos (misma semilla en TODOS los jobs) ----------
 tid = 62
 fs = int(info["sfreq"])
