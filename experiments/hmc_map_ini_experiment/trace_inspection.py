@@ -29,10 +29,10 @@ import matplotlib.pyplot as plt
 A = 0.5
 TID = 62
 FS = 250
-BURN_IN = 400
+BURN_IN = 100
 X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 
-DEFAULT_TARGETS = [5, 15, 30, 50, 75, 85, 90, 95, 100, 150, 200, 250]  # last one -> largest available
+DEFAULT_TARGETS = [11, 31, 51, 71, 201]  # last one -> largest available
 
 
 def available_sizes(results_dir):
@@ -52,11 +52,11 @@ def closest(sizes, target):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="experiments/map_vs_hmc_inverse/results")
+    p.add_argument("--results_dir", default="experiments/map_vs_hmc/results")
     p.add_argument("--sizes", type=int, nargs="*", default=None)
     p.add_argument("--n_inactive", type=int, default=5,
                    help="number of inactive sources to plot in panel 2")
-    p.add_argument("--out", default="experiments/map_vs_hmc_inverse/hmc_traces.png")
+    p.add_argument("--out", default="experiments/map_vs_hmc/hmc_traces.png")
     args = p.parse_args()
 
     files = available_sizes(args.results_dir)

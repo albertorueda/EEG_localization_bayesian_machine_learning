@@ -45,8 +45,7 @@ def leapfrog(theta0, nu0, grad_pot_energy_fun, num_steps, step_size, Sigma=None,
     else:
         return theta, nu
     
-    
-def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, Sigma=None, seed=0):
+def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, Sigma=None, seed=0, use_jit=True):
     hamiltonian, potential_energy, kinetic_energy, grad_pot_energy_fun = build_energy_functions(log_target, Sigma=Sigma)
     key = random.PRNGKey(seed)
 
@@ -56,8 +55,9 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
     accept_count = 0
     t0 = time()
 
-    hamiltonian = jit(hamiltonian)
-    grad_pot_energy_fun = jit(grad_pot_energy_fun)
+    if use_jit:
+        hamiltonian = jit(hamiltonian)
+        grad_pot_energy_fun = jit(grad_pot_energy_fun)
 
     for itt in range(num_iterations):        
         key, key_momentum, key_accept = random.split(key, 3)
@@ -87,10 +87,13 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
 
     return jnp.vstack(thetas)
 
+def get_inverse_mass_matrix(log_target, theta0, num_iterations=200, num_leapfrog_steps=150, step_size=1e-1, seed=0):
+    thetas_warmup = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
+    Sigma_est = jnp.cov(thetas_warmup.T) + 1e-6 * jnp.eye(thetas_warmup.shape[1])  # Add a small value to the diagonal for numerical stability
+    return jnp.linalg.inv(Sigma_est)
+
 def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, seed=0):
-    thetas_warmup = HMC(log_target, num_iterations//5, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
-    Sigma_est = jnp.cov(thetas_warmup.T)
-    print(f"Estimated covariance matrix:\n{Sigma_est}\n")
+    Sigma_est = get_inverse_mass_matrix(log_target, theta0, num_iterations//5, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
     
     thetas = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps//5, step_size=10000*step_size, Sigma=Sigma_est, seed=seed)
     return thetas
