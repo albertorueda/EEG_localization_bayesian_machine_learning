@@ -90,7 +90,7 @@ def HMC(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-
 def get_inverse_mass_matrix(log_target, theta0, num_iterations=200, num_leapfrog_steps=150, step_size=1e-1, seed=0):
     thetas_warmup = HMC(log_target, num_iterations, theta0, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
     Sigma_est = jnp.cov(thetas_warmup.T) + 1e-6 * jnp.eye(thetas_warmup.shape[1])  # Add a small value to the diagonal for numerical stability
-    return Sigma_est
+    return jnp.linalg.inv(Sigma_est)
 
 def HMC_inverse_mass(log_target, num_iterations, theta0, num_leapfrog_steps=10, step_size=1e-1, seed=0):
     Sigma_est = get_inverse_mass_matrix(log_target, theta0, num_iterations//5, num_leapfrog_steps=num_leapfrog_steps, step_size=step_size, seed=seed)
