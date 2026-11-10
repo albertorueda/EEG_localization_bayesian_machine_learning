@@ -73,7 +73,7 @@ smc_particles, hist = SMC(
     log_lik=post.log_likelihood,     # verosimilitud completa; el SMC aplica lambda
     theta0=theta0,
     seed=0,
-    step_size=0.1, n_leapfrog=10, n_mcmc=5, ess_frac=0.5,
+    step_size=0.25, n_leapfrog=10, n_mcmc=5, ess_frac=0.5,
 )
 smc_time = time() - t0
  

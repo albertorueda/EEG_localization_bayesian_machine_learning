@@ -62,7 +62,7 @@ def next_delta(log_lik, lam, ess_min, t_min=-16.0):
     if float(ess_from_logw((1.0 - lam) * log_lik)) >= ess_min:      # no solution in the interval
         return 1.0 - lam
     f = lambda t: (float(ess_from_logw((10.0 ** t) * log_lik)) - ess_min) ** 2
-    res = minimize_scalar(f, bounds=(t_min, float(np.log10(1.0 - lam))), method="bounded",
+    res = minimize_scalar(f, bounds=(t_min, float(jnp.log10(1.0 - lam))), method="bounded",
                           options={"xatol": 1e-12, "maxiter": 500})
     return float(10.0 ** res.x)
 
