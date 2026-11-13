@@ -1,7 +1,7 @@
 """
 trace_inspection.py  (SMC version)
 
-An SMC sampler has no chain, so there are no traces. What is stored in results/size_XXXX.npz is:
+An SMC sampler has no chain, so there are no traces. What is stored in results/size_XXXX_seed_YY.npz (una seed, --seed) is:
     thetas : (N, size)  final equally weighted particles (posterior sample)
     lam, ess, acc, logZ : per-stage history of the tempering
 
@@ -32,6 +32,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from lib.seeds import load_samples
 
 # Must match the experiment script
 A = 0.5
@@ -42,14 +47,14 @@ X_TRUE_0 = A * np.sin(2 * np.pi * TID / FS)
 DEFAULT_TARGETS = [11, 31, 51, 71, 81, 91, 101, 201, 301]  # last one -> largest available
 
 
-def available_sizes(results_dir):
+def available_sizes(results_dir, seed=0):
     sizes = {}
-    for f in glob.glob(os.path.join(results_dir, "size_*.npz")):
-        m = re.search(r"size_(\d+)\.npz$", f)
+    for f in glob.glob(os.path.join(results_dir, f"size_*_seed_{seed:02d}.npz")):
+        m = re.search(rf"size_(\d+)_seed_{seed:02d}\.npz$", f)
         if m:
             sizes[int(m.group(1))] = f
     if not sizes:
-        raise FileNotFoundError(f"No size_*.npz files found in '{results_dir}'")
+        raise FileNotFoundError(f"No size_*_seed_{seed:02d}.npz files found in '{results_dir}'")
     return sizes
 
 
@@ -59,7 +64,7 @@ def closest(sizes, target):
 
 def plot_size(size, path, n_inactive, ess_frac, out):
     d = np.load(path)
-    thetas = d["thetas"]                        # (N, size)
+    thetas, off, _ = load_samples(d)            # thetas: (N, <=N_KEEP) primeras fuentes
     N = thetas.shape[0]
     lam = np.asarray(d["lam"])[1:]              # lambda after each stage
     ess = np.asarray(d["ess"])
@@ -68,7 +73,6 @@ def plot_size(size, path, n_inactive, ess_frac, out):
     stages = np.arange(1, len(lam) + 1)
 
     t0 = thetas[:, 0]
-    off = np.linalg.norm(thetas[:, 1:], axis=1) if size > 1 else np.zeros(N)
     print(f"size={size:5d}  N={N}  stages={len(lam)}  logZ={logZ[-1]:.2f}  mean acc={acc.mean():.2f} "
           f"(min {acc.min():.2f})  theta_0 mean={t0.mean():+.4f} std={t0.std():.4f} (true {X_TRUE_0:+.4f})  "
           f"||theta_1:|| mean={off.mean():.4f}")
@@ -116,7 +120,7 @@ def plot_size(size, path, n_inactive, ess_frac, out):
 
     # 5) a few inactive sources
     ax = axes[1, 1]
-    n_in = min(n_inactive, size - 1)
+    n_in = min(n_inactive, size - 1, thetas.shape[1] - 1)
     for j in range(1, n_in + 1):
         ax.hist(thetas[:, j], bins=40, alpha=0.5, label=rf"$\theta_{{{j}}}$")
     ax.set_xlabel(r"$\theta_j$"); ax.set_ylabel("particles")
@@ -144,20 +148,21 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--results_dir", default="experiments/smc_experiment/results")
     p.add_argument("--sizes", type=int, nargs="*", default=None)
+    p.add_argument("--seed", type=int, default=0, help="seed whose chains/particles are inspected")
     p.add_argument("--n_inactive", type=int, default=5,
                    help="number of inactive sources in panel 5")
     p.add_argument("--ess_frac", type=float, default=0.5, help="must match the SMC call")
     p.add_argument("--out_dir", default="experiments/smc_experiment")
     args = p.parse_args()
 
-    files = available_sizes(args.results_dir)
+    files = available_sizes(args.results_dir, args.seed)
     targets = args.sizes if args.sizes else DEFAULT_TARGETS
     chosen = sorted({closest(files, s) for s in targets})
-    print("Sizes:", chosen)
+    print(f"Seed {args.seed}, sizes:", chosen)
 
     os.makedirs(args.out_dir, exist_ok=True)
     for size in chosen:
-        out = os.path.join(args.out_dir, f"smc_diagnostics_size_{size:04d}.png")
+        out = os.path.join(args.out_dir, f"smc_diagnostics_size_{size:04d}_seed_{args.seed:02d}.png")
         plot_size(size, files[size], args.n_inactive, args.ess_frac, out)
 
 

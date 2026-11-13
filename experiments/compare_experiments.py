@@ -1,8 +1,9 @@
 """
 compare_experiments.py
 
-Junta los resultados (results/size_XXXX.npz) de todos los experimentos de barrido en `size`
-y los dibuja en la misma figura para poder compararlos:
+Junta los resultados (results/size_XXXX_seed_YY.npz) de todos los experimentos de barrido en `size`
+y los dibuja en la misma figura para poder compararlos. Para cada size se promedia sobre las seeds
+disponibles: linea = media sobre seeds, banda = +- 1 std (se quita con --no_band).
 
   (a) error en la fuente activa:       |x_hat[0] - x_true[0]|
       (para SMC, ademas, una segunda linea con la mediana de theta_0 | activa)
@@ -14,22 +15,27 @@ La línea vertical discontinua marca size = n_channels (transición sobre -> inf
 Los experimentos sin resultados se saltan con un aviso.
 
 "Mediana | activa" = mediana de theta_0 usando solo las particulas con |theta_0| > ACTIVE_THR
-(las que no estan en el spike). Si ninguna esta activa -> NaN (hueco en la curva).
+(las que no estan en el spike). Si ninguna esta activa -> NaN (esa seed se ignora en la media;
+si es NaN en todas las seeds, hueco en la curva).
 
 Uso:
     python experiments/compare_experiments.py
     python experiments/compare_experiments.py --out experiments/comparison.png --logy
     python experiments/compare_experiments.py --only map hmc hmc_inverse_map_ini
+    python experiments/compare_experiments.py --no_band
 """
 import argparse
-import glob
 import os
+import sys
 
 import numpy as np
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.seeds import aggregate, plot_band, load_samples, has_samples
 
 # Deben coincidir con los scripts de los experimentos
 A = 0.5
@@ -51,36 +57,40 @@ EXPERIMENTS = {
     "smc":                 ("smc_experiment",                 "smc", "SMC",                          "tab:green", "D", "-"),
 }
 
+# columnas de las metricas por fichero
+ERR_ACT, ACT_OFF, ERR_TOT, TIME, MED_ACT = range(5)
+
 
 def median_active_error(d):
     """|median(theta_0 | |theta_0| > ACTIVE_THR) - x_true_0| a partir de las particulas guardadas (SMC)."""
-    if "thetas" not in d.files:
+    if not has_samples(d):
         return np.nan
-    t0 = d["thetas"][:, 0]
+    t0 = load_samples(d)[0][:, 0]
     active = np.abs(t0) > ACTIVE_THR
     return abs(np.median(t0[active]) - X_TRUE_0) if active.any() else np.nan
 
 
 def load_experiment(folder, prefix):
-    files = sorted(glob.glob(os.path.join(EXP_ROOT, folder, "results", "size_*.npz")))
-    rows, n_channels = [], None
-    for f in files:
-        d = np.load(f)
+    """(size, mean, std, n_seeds, n_channels) agregando sobre seeds, o None si no hay resultados."""
+    info = {}
+
+    def metrics(d):
         if f"{prefix}_mean" not in d.files:
-            continue
+            return None
+        info["n_channels"] = int(d["n_channels"])
         x_hat = d[f"{prefix}_mean"]
-        n_channels = int(d["n_channels"])
-        rows.append((
-            int(d["size"]),
+        return (
             abs(x_hat[0] - X_TRUE_0),
             np.linalg.norm(x_hat[1:]),
             float(d[f"{prefix}_norm_diff"]) if f"{prefix}_norm_diff" in d.files else np.nan,
             float(d[f"{prefix}_time"]) if f"{prefix}_time" in d.files else np.nan,
-            median_active_error(d) if prefix == "smc" else np.nan,      # col 5: solo SMC
-        ))
-    if not rows:
-        return None, None
-    return np.array(sorted(rows)), n_channels
+            median_active_error(d) if prefix == "smc" else np.nan,
+        )
+
+    res = aggregate(os.path.join(EXP_ROOT, folder, "results"), metrics)
+    if res is None:
+        return None
+    return (*res, info.get("n_channels"))
 
 
 def main():
@@ -88,6 +98,7 @@ def main():
     p.add_argument("--out", default=os.path.join(EXP_ROOT, "comparison.png"))
     p.add_argument("--only", nargs="+", choices=list(EXPERIMENTS), help="subconjunto de experimentos a dibujar")
     p.add_argument("--logy", action="store_true", help="escala log en los paneles de error")
+    p.add_argument("--no_band", action="store_true", help="no dibujar la banda +- 1 std entre seeds")
     args = p.parse_args()
 
     keys = args.only or list(EXPERIMENTS)
@@ -95,31 +106,35 @@ def main():
     fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharex=True)
     axes = axes.ravel()
     panels = [
-        (1, "Error in active source",       r"$|\hat{x}_0 - x_{true,0}|$"),
-        (2, "Activity in inactive sources", r"$\|\hat{x}_{1:}\|_2$"),
-        (3, "Total error",                  r"$\|\hat{x} - x_{true}\|_2$"),
-        (4, "Computation time",             "time [s]"),
+        (ERR_ACT, "Error in active source",       r"$|\hat{x}_0 - x_{true,0}|$"),
+        (ACT_OFF, "Activity in inactive sources", r"$\|\hat{x}_{1:}\|_2$"),
+        (ERR_TOT, "Total error",                  r"$\|\hat{x} - x_{true}\|_2$"),
+        (TIME,    "Computation time",             "time [s]"),
     ]
 
     n_channels = None
     summary = []
     for k in keys:
         folder, prefix, label, color, marker, ls = EXPERIMENTS[k]
-        rows, nc = load_experiment(folder, prefix)
-        if rows is None:
+        res = load_experiment(folder, prefix)
+        if res is None:
             print(f"[aviso] sin resultados para '{k}' ({folder}/results) -> se omite")
             continue
+        size, mean, std, n, nc = res
         n_channels = n_channels or nc
-        size = rows[:, 0]
+        if args.no_band:
+            std = np.zeros_like(std)
+        seeds_txt = f"{n.min()}" if n.min() == n.max() else f"{n.min()}-{n.max()}"
         for ax, (col, _, _) in zip(axes, panels):
-            ax.plot(size, rows[:, col], color=color, marker=marker, ls=ls, ms=3.5, lw=1.4,
-                    mfc="white" if ls == "--" else color, label=f"{label} (n={len(size)})")
+            plot_band(ax, size, mean[:, col], std[:, col], color=color, marker=marker, ls=ls, ms=3.5, lw=1.4,
+                      mfc="white" if ls == "--" else color,
+                      label=f"{label} (sizes={len(size)}, seeds={seeds_txt})")
         # linea extra en el panel (a): mediana | activa (solo SMC)
-        if prefix == "smc" and not np.all(np.isnan(rows[:, 5])):
-            axes[0].plot(size, rows[:, 5], color="darkgreen", marker="o", ls="-.", ms=3.5, lw=1.4,
-                         mfc="white", label=f"{label} (median | active)")
-        summary.append((label, len(size), np.nanmedian(rows[:, 1]), np.nanmedian(rows[:, 2]),
-                        np.nanmedian(rows[:, 3]), np.nanmedian(rows[:, 4])))
+        if prefix == "smc" and not np.all(np.isnan(mean[:, MED_ACT])):
+            plot_band(axes[0], size, mean[:, MED_ACT], std[:, MED_ACT], color="darkgreen", marker="o", ls="-.",
+                      ms=3.5, lw=1.4, mfc="white", label=f"{label} (median | active)")
+        summary.append((label, len(size), int(n.sum()),
+                        *(np.nanmedian(mean[:, c]) for c in (ERR_ACT, ACT_OFF, ERR_TOT, TIME))))
 
     if not summary:
         raise FileNotFoundError("No se ha encontrado ningún resultado.")
@@ -143,10 +158,10 @@ def main():
     fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(args.out, dpi=200)
 
-    # Tabla resumen (medianas sobre todos los sizes)
-    print(f"\n{'method':32s} {'jobs':>5s} {'err_act':>10s} {'act_off':>10s} {'err_tot':>10s} {'time[s]':>10s}")
-    for lab, n, a, b, c, t in summary:
-        print(f"{lab:32s} {n:5d} {a:10.4f} {b:10.4f} {c:10.4f} {t:10.2f}")
+    # Tabla resumen (mediana sobre sizes de la media sobre seeds)
+    print(f"\n{'method':32s} {'sizes':>5s} {'jobs':>5s} {'err_act':>10s} {'act_off':>10s} {'err_tot':>10s} {'time[s]':>10s}")
+    for lab, ns, nj, a, b, c, t in summary:
+        print(f"{lab:32s} {ns:5d} {nj:5d} {a:10.4f} {b:10.4f} {c:10.4f} {t:10.2f}")
     print(f"\n-> {args.out}")
 
 

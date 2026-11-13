@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from lib.distributions import SpikeAndSlabPrior, Posterior
+from lib.seeds import parse_job, noise_rng, result_path
 from lib.map_solution import get_map_estimate
 
 slab_var, spike_var, slab_prob = 0.1, 0.001, 0.5
@@ -33,16 +34,12 @@ n_channels, n_sources = L.shape
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
 sizes = sorted(set(range(5, 301, 5)) | {300, 1})
 
-# Si se ejecuta sin argumentos, solo informa de cuántos jobs hacen falta
-if len(sys.argv) < 2:
-    print(f"n_channels={n_channels}, n_sources={n_sources}, n_jobs={len(sizes)}  ->  #BSUB -J mapvshmc[1-{len(sizes)}]")
-    sys.exit(0)
+# Cada job = un par (size, seed): len(sizes) * N_SEEDS jobs en total.
+# Sin argumentos, solo informa de cuántos jobs hacen falta.
+job_idx, size, seed = parse_job(sys.argv, sizes, job_name="map")   # $LSB_JOBINDEX (1-based)
+print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}, seed={seed}", flush=True)
 
-job_idx = int(sys.argv[1])          # $LSB_JOBINDEX (1-based)
-size = sizes[job_idx - 1]
-print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}", flush=True)
-
-# ---------- Datos sintéticos (misma semilla en TODOS los jobs) ----------
+# ---------- Datos sintéticos (el ruido depende de la seed; mismo ruido para todos los sizes) ----------
 tid = 62
 fs = int(info["sfreq"])
 t = np.linspace(0, 1, fs, endpoint=False)
@@ -51,13 +48,13 @@ X = np.zeros((n_sources, fs))
 X[0] = A * np.sin(2 * np.pi * t)
 
 beta = 4
-rng = np.random.default_rng(12345)   # <- fija: el ruido es el mismo en todos los jobs
+rng = noise_rng(seed)               # seed=0 -> default_rng(12345), como antes
 e = rng.normal(0, 1/beta, size=(n_channels, fs))
 
 # ---------- Problema con `size` fuentes y TODOS los sensores ----------
 L_small = jnp.array(L[:, 0:size])    # (n_channels, size)
 x_small = X[0:size]                  # (size, fs); la fuente 0 siempre incluida
-Y = L_small @ x_small + e            # idéntico en todos los jobs (solo la fuente 0 está activa)
+Y = L_small @ x_small + e            # idéntico en todos los sizes con la misma seed (solo la fuente 0 está activa)
 y_tid = Y[:, tid]
 post = Posterior(prior_distribution=SpikeAndSlab, L=L_small, Y=Y, beta=beta, y_tid=y_tid)
 
@@ -68,15 +65,14 @@ map_time = time() - t0
 map_solution = np.asarray(map_solution).ravel()
 map_norm_diff = float(np.linalg.norm(map_solution - x_small[:, tid]))
 
-print(f"n_src: {size}, MAP norm diff: {map_norm_diff:.4f}", flush=True)
+print(f"n_src: {size}, seed: {seed}, MAP norm diff: {map_norm_diff:.4f}", flush=True)
 
 # ---------- Guardar (un fichero por job) ----------
-script_dir = os.path.dirname(os.path.abspath(__file__))
-print(f"Guardando resultados en {script_dir}/results/size_{size:04d}.npz", flush=True)
-results_dir = os.path.join(script_dir, "results")
-os.makedirs(results_dir, exist_ok=True)
-np.savez(
-    f"experiments/map_experiment/results/size_{size:04d}.npz",
-    size=size, n_channels=n_channels,
+results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+out_path = result_path(results_dir, size, seed)
+print(f"Guardando resultados en {out_path}", flush=True)
+np.savez_compressed(
+    out_path,
+    size=size, seed=seed, n_channels=n_channels,
     map_mean=map_solution, map_norm_diff=map_norm_diff, map_time=map_time,
 )

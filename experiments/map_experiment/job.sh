@@ -1,5 +1,6 @@
 #!/bin/bash
-#BSUB -J map[1-61]%30
+# 61 sizes x 10 seeds (lib/seeds.py: N_SEEDS) = 610 jobs; job i -> size_idx, seed = divmod(i-1, 10)
+#BSUB -J map[1-610]%30
 #BSUB -q hpc
 #BSUB -n 2
 #BSUB -R "span[hosts=1]"
