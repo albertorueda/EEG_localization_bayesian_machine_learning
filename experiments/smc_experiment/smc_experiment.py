@@ -33,13 +33,14 @@ n_channels, n_sources = L.shape
 
 # `size` = nº de FUENTES (columnas de L). Siempre se usan TODOS los sensores.
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
-sizes = sorted(set(range(5, 301, 5)) | {300, 1})
-
-# Cada job = un par (size, seed): len(sizes) * N_SEEDS jobs en total.
-# Sin argumentos, solo informa de cuántos jobs hacen falta.
-job_idx, size, seed = parse_job(sys.argv, sizes, job_name="smc")   # $LSB_JOBINDEX (1-based)
-print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}, seed={seed}", flush=True)
-
+#sizes = sorted(set(range(5, 301, 5)) | {300, 1})
+#
+## Cada job = un par (size, seed): len(sizes) * N_SEEDS jobs en total.
+## Sin argumentos, solo informa de cuántos jobs hacen falta.
+#job_idx, size, seed = parse_job(sys.argv, sizes, job_name="smc")   # $LSB_JOBINDEX (1-based)
+#print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}, seed={seed}", flush=True)
+size = 50
+seed = 1
 # ---------- Datos sintéticos (el ruido depende de la seed; mismo ruido para todos los sizes) ----------
 tid = 62
 fs = int(info["sfreq"])
@@ -75,7 +76,10 @@ smc_time = time() - t0
  
 smc_param = smc_particles.mean(axis=0)           # (size,) media posterior
 smc_norm_diff = float(jnp.linalg.norm(smc_param - x_small[:, tid]))
-p_z1 = SpikeAndSlab.z_posterior(smc_particles[-1])  # (size,) probabilidad posterior de activación
+p_z1 = SpikeAndSlab.z_posterior(smc_param)  # (size,) probabilidad posterior de activación
+w_z1 = p_z1 / p_z1.sum()  # (size,) pesos normalizados de activación
+x_j_mean = (w_z1 * smc_param)  # (size,) media posterior de las activaciones
+x_j_var = (w_z1 * (x_j_mean - smc_param) ** 2)  # varianza de las activaciones
  
 print(f"n_src: {size}, seed: {seed}, SMC norm diff: {smc_norm_diff:.4f}, time: {smc_time:.1f}s", flush=True)
  
@@ -90,5 +94,6 @@ np.savez_compressed(
     **compact_samples(smc_particles, seed),   # resumen float64; cadena completa (float32) solo si seed in FULL_CHAIN_SEEDS
     lam=np.asarray(hist["lam"]), ess=np.asarray(hist["ess"]),
     acc=np.asarray(hist["acc"]), logZ=np.asarray(hist["logZ"]),
+    x_j_mean=np.asarray(x_j_mean), x_j_var=np.asarray(x_j_var),
     p_z1=np.asarray(p_z1),
 )

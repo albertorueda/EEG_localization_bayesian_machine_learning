@@ -65,6 +65,9 @@ map_time = time() - t0
 map_solution = np.asarray(map_solution).ravel()
 map_norm_diff = float(np.linalg.norm(map_solution - x_small[:, tid]))
 p_z1 = SpikeAndSlab.z_posterior(map_solution)  # (size,) probabilidad posterior de activación
+w_z1 = p_z1 / p_z1.sum()  # (size,) pesos normalizados de activación
+x_j_mean = (w_z1 * map_solution)  # (size,) media posterior de las activaciones
+x_j_var = (w_z1 * (x_j_mean - map_solution) ** 2)  # varianza de las activaciones
 
 print(f"n_src: {size}, seed: {seed}, MAP norm diff: {map_norm_diff:.4f}, p_z1: {p_z1}", flush=True)
 
@@ -75,5 +78,5 @@ print(f"Guardando resultados en {out_path}", flush=True)
 np.savez_compressed(
     out_path,
     size=size, seed=seed, n_channels=n_channels,
-    map_mean=map_solution, map_norm_diff=map_norm_diff, map_time=map_time, p_z1=p_z1
+    map_mean=map_solution, map_norm_diff=map_norm_diff, map_time=map_time, p_z1=p_z1, x_j_mean=x_j_mean, x_j_var=x_j_var
 )

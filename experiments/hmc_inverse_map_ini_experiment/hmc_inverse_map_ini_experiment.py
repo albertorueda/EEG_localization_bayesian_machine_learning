@@ -71,6 +71,9 @@ hmc_time = time() - t0
 hmc_mean = jnp.mean(thetas[400:], axis=0)
 hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))
 p_z1 = SpikeAndSlab.z_posterior(hmc_mean)  # (size,) probabilidad posterior de activación
+w_z1 = p_z1 / p_z1.sum()  # (size,) pesos normalizados de activación
+x_j_mean = (w_z1 * hmc_mean)  # (size,) media posterior de las activaciones
+x_j_var = (w_z1 * (x_j_mean - hmc_mean) ** 2)  # varianza de las activaciones
 
 print(f"n_src: {size}, seed: {seed}, HMC norm diff: {hmc_norm_diff:.4f}", flush=True)
 
@@ -82,5 +85,6 @@ np.savez_compressed(
     out_path,
     size=size, seed=seed, n_channels=n_channels,
     hmc_mean=np.asarray(hmc_mean), hmc_norm_diff=hmc_norm_diff, hmc_time=hmc_time, p_z1=np.asarray(p_z1),
+    x_j_mean=np.asarray(x_j_mean), x_j_var=np.asarray(x_j_var),
     **compact_samples(thetas, seed),   # resumen float64; cadena completa (float32) solo si seed in FULL_CHAIN_SEEDS
 )
