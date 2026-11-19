@@ -15,7 +15,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from lib.distributions import SpikeAndSlabPrior, Posterior
 from lib.seeds import parse_job, noise_rng, result_path, compact_samples
 from lib.smc import SMC
-from lib.map_solution import get_map_estimate
 
 slab_var, spike_var, slab_prob = 0.1, 0.001, 0.05
 SpikeAndSlab = SpikeAndSlabPrior(slab_var=slab_var, spike_var=spike_var, slab_prob=slab_prob)
@@ -76,6 +75,7 @@ smc_time = time() - t0
  
 smc_param = smc_particles.mean(axis=0)           # (size,) media posterior
 smc_norm_diff = float(jnp.linalg.norm(smc_param - x_small[:, tid]))
+p_z1 = SpikeAndSlab.z_posterior(smc_particles[-1])  # (size,) probabilidad posterior de activación
  
 print(f"n_src: {size}, seed: {seed}, SMC norm diff: {smc_norm_diff:.4f}, time: {smc_time:.1f}s", flush=True)
  
@@ -90,4 +90,5 @@ np.savez_compressed(
     **compact_samples(smc_particles, seed),   # resumen float64; cadena completa (float32) solo si seed in FULL_CHAIN_SEEDS
     lam=np.asarray(hist["lam"]), ess=np.asarray(hist["ess"]),
     acc=np.asarray(hist["acc"]), logZ=np.asarray(hist["logZ"]),
+    p_z1=np.asarray(p_z1),
 )

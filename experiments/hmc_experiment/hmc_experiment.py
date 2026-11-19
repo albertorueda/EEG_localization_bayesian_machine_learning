@@ -66,6 +66,7 @@ thetas = HMC(log_target=post.log_posterior, num_iterations=2000, theta0=theta_0,
 hmc_time = time() - t0
 hmc_mean = jnp.mean(thetas[100:], axis=0)
 hmc_norm_diff = float(jnp.linalg.norm(hmc_mean - x_small[:, tid]))
+p_z1 = SpikeAndSlab.z_posterior(hmc_mean)  # (size,) probabilidad posterior de activación
 
 print(f"n_src: {size}, seed: {seed}, HMC norm diff: {hmc_norm_diff:.4f}", flush=True)
 
@@ -76,6 +77,7 @@ print(f"Guardando resultados en {out_path}", flush=True)
 np.savez_compressed(
     out_path,
     size=size, seed=seed, n_channels=n_channels,
+    p_z1=np.asarray(p_z1),
     hmc_mean=np.asarray(hmc_mean), hmc_norm_diff=hmc_norm_diff, hmc_time=hmc_time,
     **compact_samples(thetas, seed),   # resumen float64; cadena completa (float32) solo si seed in FULL_CHAIN_SEEDS
 )

@@ -64,8 +64,9 @@ map_solution = get_map_estimate(post.log_posterior, theta0=jnp.zeros(size))
 map_time = time() - t0
 map_solution = np.asarray(map_solution).ravel()
 map_norm_diff = float(np.linalg.norm(map_solution - x_small[:, tid]))
+p_z1 = SpikeAndSlab.z_posterior(map_solution)  # (size,) probabilidad posterior de activación
 
-print(f"n_src: {size}, seed: {seed}, MAP norm diff: {map_norm_diff:.4f}", flush=True)
+print(f"n_src: {size}, seed: {seed}, MAP norm diff: {map_norm_diff:.4f}, p_z1: {p_z1}", flush=True)
 
 # ---------- Guardar (un fichero por job) ----------
 results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
@@ -74,5 +75,5 @@ print(f"Guardando resultados en {out_path}", flush=True)
 np.savez_compressed(
     out_path,
     size=size, seed=seed, n_channels=n_channels,
-    map_mean=map_solution, map_norm_diff=map_norm_diff, map_time=map_time,
+    map_mean=map_solution, map_norm_diff=map_norm_diff, map_time=map_time, p_z1=p_z1
 )

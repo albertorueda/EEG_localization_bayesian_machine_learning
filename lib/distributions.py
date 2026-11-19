@@ -1,6 +1,7 @@
 from jax import random
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+import numpy as np
 
 
 class PriorDistribution:
@@ -44,6 +45,18 @@ class SpikeAndSlabPrior(PriorDistribution):
         spike_samples = random.normal(spike_key, shape=(num_samples, num_features)) * jnp.sqrt(self.spike_var)
         mask = random.bernoulli(mask_key, p=self.slab_prob, shape=(num_samples, num_features))
         return mask * slab_samples + (1 - mask) * spike_samples
+    
+    def z_posterior(self, X_hat):
+        """
+        X_hat: (..., D). Devuelve P(z_j=1 | x_j) con la misma forma (..., D).
+        """
+        def log_normal(x, var):
+            return -0.5 * jnp.log(2 * jnp.pi * var) - 0.5 * x**2 / var
+    
+        log_slab  = jnp.log(self.slab_prob)     + log_normal(X_hat, self.slab_var)
+        log_spike = jnp.log(1 - self.slab_prob) + log_normal(X_hat, self.spike_var)
+    
+        return jnp.exp(log_slab - jnp.logaddexp(log_slab, log_spike))
 
 class HorseShoePrior(PriorDistribution):
     def __init__(self, tau):
