@@ -131,5 +131,5 @@ def aggregate(results_dir, metric_fn):
 def plot_band(ax, x, mean, std, **kw):
     """Linea con la media sobre seeds y banda +- 1 std."""
     line, = ax.plot(x, mean, **kw)
-    ax.fill_between(x, mean - std, mean + std, color=line.get_color(), alpha=0.15, lw=0)
+    #ax.fill_between(x, mean - std, mean + std, color=line.get_color(), alpha=0.15, lw=0)
     return line
