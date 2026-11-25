@@ -10,6 +10,9 @@ frente a size. Linea = media sobre seeds, banda = +- 1 std.
 (las que no estan en el spike). Si en una seed ninguna particula esta activa, esa seed da NaN y se
 ignora en la media (nanmean); si es NaN en todas las seeds queda un hueco en la curva.
 
+Ademas genera pz1.png (junto a --out): rendimiento de p(z=1) como detector de la fuente activa
+(lib/activation.py: p(z=1), TPR/FPR/F1 con p>=0.5, AUC por job y nº de detecciones frente a size).
+
 Uso:
     python experiments/smc_experiment/aggregate_results.py
     python experiments/smc_experiment/aggregate_results.py --results_dir experiments/smc_experiment/results --out experiments/smc_experiment/error.png
@@ -26,6 +29,7 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lib.seeds import aggregate, plot_band, load_samples
+from lib.activation import plot_pz1
 
 # Deben coincidir con smc_experiment.py
 A = 0.5
@@ -75,6 +79,8 @@ def main():
     fig.tight_layout()
     fig.savefig(args.out, dpi=200)
     print(f"{len(size)} sizes, {n.sum()} jobs -> {args.out}")
+
+    plot_pz1(args.results_dir, str(Path(args.out).with_name("pz1.png")), label="SMC", marker="D")
 
 
 if __name__ == "__main__":

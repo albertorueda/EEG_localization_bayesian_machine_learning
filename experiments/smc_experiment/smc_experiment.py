@@ -33,14 +33,13 @@ n_channels, n_sources = L.shape
 
 # `size` = nº de FUENTES (columnas de L). Siempre se usan TODOS los sensores.
 # Incluimos n_channels para ver bien la transición sobredeterminado -> infradeterminado.
-#sizes = sorted(set(range(5, 301, 5)) | {300, 1})
-#
-## Cada job = un par (size, seed): len(sizes) * N_SEEDS jobs en total.
-## Sin argumentos, solo informa de cuántos jobs hacen falta.
-#job_idx, size, seed = parse_job(sys.argv, sizes, job_name="smc")   # $LSB_JOBINDEX (1-based)
-#print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}, seed={seed}", flush=True)
-size = 50
-seed = 1
+sizes = sorted(set(range(5, 301, 5)) | {300, 1})
+
+# Cada job = un par (size, seed): len(sizes) * N_SEEDS jobs en total.
+# Sin argumentos, solo informa de cuántos jobs hacen falta.
+job_idx, size, seed = parse_job(sys.argv, sizes, job_name="smc")   # $LSB_JOBINDEX (1-based)
+print(f"Job {job_idx}: n_channels={n_channels}, n_src(size)={size}, seed={seed}", flush=True)
+
 # ---------- Datos sintéticos (el ruido depende de la seed; mismo ruido para todos los sizes) ----------
 tid = 62
 fs = int(info["sfreq"])

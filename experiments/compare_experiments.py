@@ -5,8 +5,7 @@ Junta los resultados (results/size_XXXX_seed_YY.npz) de todos los experimentos d
 y los dibuja en la misma figura para poder compararlos. Para cada size se promedia sobre las seeds
 disponibles: linea = media sobre seeds, banda = +- 1 std (se quita con --no_band).
 
-  (a) error en la fuente activa:       |x_hat[0] - x_true[0]|
-      (para SMC, ademas, una segunda linea con la mediana de theta_0 | activa)
+  (a) error en la fuente activa:       |x_hat[0] - x_true[0]|   (SMC: tambien mediana | activa)
   (b) actividad en fuentes inactivas:  ||x_hat[1:]||_2
   (c) error total:                     ||x_hat - x_true||_2   (norm_diff guardado por cada job)
   (d) tiempo de cómputo                (escala log)
@@ -17,10 +16,6 @@ La línea vertical discontinua marca size = n_channels (transición sobre -> inf
 Los experimentos sin resultados se saltan con un aviso.
 Además se genera una figura *_activation con curvas ROC y scatter que comparan
 |x_j_mean| frente a p(z=1) como criterio de activación.
-
-"Mediana | activa" = mediana de theta_0 usando solo las particulas con |theta_0| > ACTIVE_THR
-(las que no estan en el spike). Si ninguna esta activa -> NaN (esa seed se ignora en la media;
-si es NaN en todas las seeds, hueco en la curva).
 
 Uso:
     python experiments/compare_experiments.py
@@ -41,6 +36,7 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.seeds import aggregate, plot_band, load_samples, has_samples
+from lib.activation import roc_points, fixed_metrics, best_f1
 
 # Deben coincidir con los scripts de los experimentos
 A = 0.5
@@ -60,14 +56,26 @@ EXPERIMENTS = {
     "hmc_inverse":         ("hmc_inverse_experiment",         "hmc", "HMC inverse mass",             "tab:red",  "s", "-"),
     "hmc_inverse_map_ini": ("hmc_inverse_map_ini_experiment", "hmc", "HMC inverse mass (MAP init)",  "tab:red",  "^", "--"),
     "smc":                 ("smc_experiment",                 "smc", "SMC",                          "tab:green", "D", "-"),
+    "l1":                  ("l1_experiment",                  "l1",  "L1 (Lasso CV)",                "tab:purple", "v", "-"),
 }
 
 # columnas de las metricas por fichero
-ERR_ACT, ACT_OFF, ERR_TOT, TIME, MED_ACT, PZ1_ACT, PZ1_OFF_MEAN, PZ1_OFF_MAX = range(8)
+ERR_ACT, ACT_OFF, ERR_TOT, TIME, PZ1_ACT, PZ1_OFF_MEAN, PZ1_OFF_MAX, ERR_ACT_MED = range(8)
+
+# experimentos para los que se dibuja tambien el error de la mediana | activa en el panel (a)
+MEDIAN_ACTIVE = {"smc"}
 
 
-def median_active_error(d):
-    """|median(theta_0 | |theta_0| > ACTIVE_THR) - x_true_0| a partir de las particulas guardadas (SMC)."""
+def _pz_summary(p_z1):
+    """(p(z_0=1), media de p(z_{1:}=1), max de p(z_{1:}=1))."""
+    if p_z1 is None:
+        return np.nan, np.nan, np.nan
+    off = p_z1[1:]
+    return float(p_z1[0]), float(off.mean()) if off.size else 0.0, float(off.max()) if off.size else 0.0
+
+
+def _median_active_err(d):
+    """|mediana(theta_0 | |theta_0| > ACTIVE_THR) - x_true_0| (NaN si no hay muestras activas)."""
     if not has_samples(d):
         return np.nan
     t0 = load_samples(d)[0][:, 0]
@@ -85,21 +93,13 @@ def load_experiment(folder, prefix):
         info["n_channels"] = int(d["n_channels"])
         x_hat = d[f"{prefix}_mean"]
         p_z1 = np.asarray(d["p_z1"], dtype=float) if "p_z1" in d.files else None
-        if p_z1 is not None:
-            pz_active = float(p_z1[0])
-            pz_off_mean = float(np.mean(p_z1[1:])) if p_z1.size > 1 else 0.0
-            pz_off_max = float(np.max(p_z1[1:])) if p_z1.size > 1 else 0.0
-        else:
-            pz_active = pz_off_mean = pz_off_max = np.nan
         return (
             abs(x_hat[0] - X_TRUE_0),
             np.linalg.norm(x_hat[1:]),
             float(d[f"{prefix}_norm_diff"]) if f"{prefix}_norm_diff" in d.files else np.nan,
             float(d[f"{prefix}_time"]) if f"{prefix}_time" in d.files else np.nan,
-            median_active_error(d) if prefix == "smc" else np.nan,
-            pz_active,
-            pz_off_mean,
-            pz_off_max,
+            *_pz_summary(p_z1),
+            _median_active_err(d) if prefix in MEDIAN_ACTIVE else np.nan,
         )
 
     res = aggregate(os.path.join(EXP_ROOT, folder, "results"), metrics)
@@ -108,77 +108,32 @@ def load_experiment(folder, prefix):
     return (*res, info.get("n_channels"))
 
 
-def roc_points(y_true, scores):
-    """ROC points and AUC for a binary activation vector."""
-    y_true = np.asarray(y_true, dtype=bool)
-    scores = np.asarray(scores, dtype=float)
-    thresholds = np.r_[np.inf, np.unique(scores)[::-1]]
-    tpr, fpr = [], []
-    n_pos = y_true.sum()
-    n_neg = len(y_true) - n_pos
-    for threshold in thresholds:
-        pred = scores >= threshold
-        tp = np.sum(pred & y_true)
-        fp = np.sum(pred & ~y_true)
-        tpr.append(tp / n_pos if n_pos else np.nan)
-        fpr.append(fp / n_neg if n_neg else np.nan)
-    tpr = np.asarray(tpr)
-    fpr = np.asarray(fpr)
-    auc = float(np.trapezoid(tpr, fpr)) if hasattr(np, "trapezoid") else float(np.trapz(tpr, fpr))
-    return fpr, tpr, auc
-
-
-def fixed_metrics(y_true, pred):
-    y_true = np.asarray(y_true, dtype=bool)
-    pred = np.asarray(pred, dtype=bool)
-    tp = np.sum(pred & y_true)
-    fp = np.sum(pred & ~y_true)
-    tn = np.sum(~pred & ~y_true)
-    fn = np.sum(~pred & y_true)
-    sensitivity = tp / (tp + fn) if tp + fn else 0.0
-    specificity = tn / (tn + fp) if tn + fp else 0.0
-    precision = tp / (tp + fp) if tp + fp else 0.0
-    recall = sensitivity
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    balanced_accuracy = 0.5 * (sensitivity + specificity)
-    accuracy = (tp + tn) / len(y_true)
-    return accuracy, balanced_accuracy, f1
-
-
-def best_f1(y_true, scores):
-    """Threshold maximizing F1 over the observed score values."""
-    y_true = np.asarray(y_true, dtype=bool)
-    scores = np.asarray(scores, dtype=float)
-    best = (-1.0, float(scores.min()), None)
-    for threshold in np.unique(scores):
-        metrics = fixed_metrics(y_true, scores >= threshold)
-        if metrics[2] > best[0]:
-            best = (metrics[2], float(threshold), metrics)
-    return best
-
-
 def collect_activation_scores(folder, prefix):
-    """Collect ground-truth, x_j_mean magnitude and p_z1 for all available jobs."""
+    """Collect ground-truth, x_j_mean magnitude and p_z1 for all available jobs.
+    Metodos sin p(z=1) (p.ej. L1/Lasso) -> pz = None y solo se usa |x_j|."""
     y_all, mean_all, pz_all = [], [], []
+    has_pz = None
     for path in glob(os.path.join(EXP_ROOT, folder, "results", "size_*_seed_*.npz")):
         with np.load(path) as d:
-            if "p_z1" not in d.files:
+            if has_pz is None:
+                has_pz = "p_z1" in d.files
+            if has_pz and "p_z1" not in d.files:
                 continue
-            pz = np.asarray(d["p_z1"], dtype=float)
             if "x_j_mean" in d.files:
                 mean = np.abs(np.asarray(d["x_j_mean"], dtype=float))
             elif f"{prefix}_mean" in d.files:
                 mean = np.abs(np.asarray(d[f"{prefix}_mean"], dtype=float))
             else:
                 continue
+            pz = np.asarray(d["p_z1"], dtype=float) if has_pz else np.full(mean.size, np.nan)
             if mean.size != pz.size:
                 continue
-            y_all.extend([1] + [0] * (pz.size - 1))
+            y_all.extend([1] + [0] * (mean.size - 1))
             mean_all.extend(mean)
             pz_all.extend(pz)
     if not y_all:
         return None
-    return np.asarray(y_all, dtype=bool), np.asarray(mean_all), np.asarray(pz_all)
+    return np.asarray(y_all, dtype=bool), np.asarray(mean_all), (np.asarray(pz_all) if has_pz else None)
 
 
 def main():
@@ -219,14 +174,14 @@ def main():
             plot_band(ax, size, mean[:, col], std[:, col], color=color, marker=marker, ls=ls, ms=3.5, lw=1.4,
                       mfc="white" if ls == "--" else color,
                       label=f"{label} (sizes={len(size)}, seeds={seeds_txt})")
-        # linea extra en el panel (a): mediana | activa (solo SMC)
-        if prefix == "smc" and not np.all(np.isnan(mean[:, MED_ACT])):
-            plot_band(axes[0], size, mean[:, MED_ACT], std[:, MED_ACT], color="darkgreen", marker="o", ls="-.",
-                      ms=3.5, lw=1.4, mfc="white", label=f"{label} (median | active)")
         if not np.all(np.isnan(mean[:, PZ1_OFF_MAX])):
             plot_band(axes[5], size, mean[:, PZ1_OFF_MAX], std[:, PZ1_OFF_MAX],
                       color=color, marker=marker, ls=":", ms=3.5, lw=1.1, mfc="white",
                       label=f"{label} (max inactive)")
+        if prefix in MEDIAN_ACTIVE and not np.all(np.isnan(mean[:, ERR_ACT_MED])):
+            plot_band(axes[0], size, mean[:, ERR_ACT_MED], std[:, ERR_ACT_MED],
+                      color=color, marker=marker, ls=":", ms=3.5, lw=1.1, mfc="white",
+                      label=f"{label} (median | active)")
         summary.append((label, len(size), int(n.sum()),
                         *(np.nanmedian(mean[:, c]) for c in (ERR_ACT, ACT_OFF, ERR_TOT, TIME))))
 
@@ -256,45 +211,46 @@ def main():
 
     # Comparacion de criterios para decidir si una fuente esta activada:
     # |x_j_mean| frente a p(z=1).
-    criterion_fig, criterion_axes = plt.subplots(1, 2, figsize=(14, 5.5))
+    criterion_fig, (roc_ax, scatter_ax) = plt.subplots(1, 2, figsize=(14, 5.5))
     criterion_summary = []
     scatter_plotted = False
     for k in keys:
         folder, prefix, label, color, marker, ls = EXPERIMENTS[k]
-        collected = collect_activation_scores(folder, prefix)
-        if collected is None:
+        c = collect_activation_scores(folder, prefix)
+        if c is None:
             continue
-        y_true, mean_score, pz_score = collected
+        y_true, mean_score, pz_score = c
 
-        for ax, scores, criterion_label in (
-            (criterion_axes[0], mean_score, r"$|x_j|$ mean"),
-            (criterion_axes[0], pz_score, r"$p(z=1)$"),
-        ):
+        # (scores, nombre en la tabla, etiqueta, umbral fijo, es p(z=1))
+        # L1/Lasso da ceros exactos: su umbral fijo natural es x_j != 0 (y no hay p(z=1)).
+        mean_thr = 1e-12 if prefix == "l1" else ACTIVE_THR
+        criteria = [(mean_score, "|x_j_mean|", r"$|x_j|$ mean", mean_thr, False)]
+        if pz_score is not None:
+            criteria.append((pz_score, "p(z=1)", r"$p(z=1)$", 0.5, True))
+        rows = []
+        for scores, name, crit_label, thr, is_pz in criteria:
             fpr, tpr, auc = roc_points(y_true, scores)
-            ax.plot(fpr, tpr, marker=marker if criterion_label == r"$p(z=1)$" else None,
-                    ms=3.5, lw=1.5, color=color,
-                    ls=ls if criterion_label == r"$|x_j|$ mean" else "--",
-                    label=f"{label} - {criterion_label} (AUC={auc:.3f})")
-
-        mean_fixed = fixed_metrics(y_true, mean_score >= ACTIVE_THR)
-        pz_fixed = fixed_metrics(y_true, pz_score >= 0.5)
-        mean_best = best_f1(y_true, mean_score)
-        pz_best = best_f1(y_true, pz_score)
-        criterion_summary.append((label, mean_fixed, pz_fixed, mean_best, pz_best))
+            roc_ax.plot(fpr, tpr, marker=marker if is_pz else None, ms=3.5, lw=1.5, color=color,
+                        ls="--" if is_pz else ls, label=f"{label} - {crit_label} (AUC={auc:.3f})")
+            rows.append((name, fixed_metrics(y_true, scores >= thr), best_f1(y_true, scores), auc))
+        criterion_summary.append((label, rows))
 
         # Scatter para visualizar directamente la relacion de ambos criterios.
-        criterion_axes[1].scatter(mean_score, pz_score, c=np.where(y_true, "tab:red", "tab:gray"),
-                                  s=8, alpha=0.25, rasterized=True)
+        if pz_score is None:
+            continue
+        scatter_ax.scatter(mean_score, pz_score, c=np.where(y_true, "tab:red", "tab:gray"),
+                           s=8, alpha=0.25, rasterized=True)
         scatter_plotted = True
 
-    criterion_axes[0].plot([0, 1], [0, 1], "k:", lw=1.0)
-    criterion_axes[0].set_title("ROC: activation criterion")
-    criterion_axes[0].set_xlabel("False positive rate")
-    criterion_axes[0].set_ylabel("True positive rate")
-    criterion_axes[0].set_xlim(-0.02, 1.02)
-    criterion_axes[0].set_ylim(-0.02, 1.02)
-    criterion_axes[0].grid(alpha=0.3)
-    criterion_axes[0].legend(loc="lower right", fontsize=8)
+    roc_ax.plot([0, 1], [0, 1], "k:", lw=1.0)
+    roc_ax.set_title("ROC: activation criterion")
+    roc_ax.set_xlabel("False positive rate")
+    roc_ax.set_ylabel("True positive rate")
+    roc_ax.set_xlim(-0.02, 1.02)
+    roc_ax.set_ylim(-0.02, 1.02)
+    roc_ax.grid(alpha=0.3)
+    roc_ax.legend(loc="lower right", fontsize=8)
+    criterion_axes = (roc_ax, scatter_ax)
     criterion_axes[1].axvline(ACTIVE_THR, color="tab:blue", ls="--", lw=1.2,
                               label=r"$|x_j|$ threshold")
     criterion_axes[1].axhline(0.5, color="tab:green", ls="--", lw=1.2,
@@ -318,13 +274,13 @@ def main():
         print(f"{lab:32s} {ns:5d} {nj:5d} {a:10.4f} {b:10.4f} {c:10.4f} {t:10.2f}")
     if criterion_summary:
         print("\nActivation criterion comparison "
-              "(fixed thresholds: |x_j| >= 3*sqrt(spike_var), p(z=1) >= 0.5)")
-        print(f"{'method':32s} {'criterion':20s} {'accuracy':>10s} {'balanced':>10s} {'F1':>10s} {'best F1':>10s} {'best thr':>10s}")
-        for lab, mean_fixed, pz_fixed, mean_best, pz_best in criterion_summary:
-            print(f"{lab:32s} {'|x_j_mean|':20s} {mean_fixed[0]:10.4f} {mean_fixed[1]:10.4f} "
-                  f"{mean_fixed[2]:10.4f} {mean_best[0]:10.4f} {mean_best[1]:10.4f}")
-            print(f"{lab:32s} {'p(z=1)':20s} {pz_fixed[0]:10.4f} {pz_fixed[1]:10.4f} "
-                  f"{pz_fixed[2]:10.4f} {pz_best[0]:10.4f} {pz_best[1]:10.4f}")
+              "(fixed thresholds: |x_j| >= 3*sqrt(spike_var) [L1: x_j != 0], p(z=1) >= 0.5)")
+        print(f"{'method':32s} {'criterion':20s} {'accuracy':>10s} {'balanced':>10s} {'F1':>10s} "
+              f"{'best F1':>10s} {'best thr':>10s} {'AUC':>8s}")
+        for lab, rows in criterion_summary:
+            for name, fixed, best, auc in rows:
+                print(f"{lab:32s} {name:20s} {fixed[0]:10.4f} {fixed[1]:10.4f} {fixed[2]:10.4f} "
+                      f"{best[0]:10.4f} {best[1]:10.4f} {auc:8.4f}")
     print(f"\n-> {args.out}")
     print(f"-> {criterion_out}")
 

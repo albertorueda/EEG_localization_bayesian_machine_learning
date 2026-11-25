@@ -6,6 +6,9 @@ Lee results/size_XXXX_seed_YY.npz (un fichero por job (size, seed) de map_experi
   - actividad en fuentes inactivas: ||x_hat[1:]||_2
 frente a size. Linea = media sobre seeds, banda = +- 1 std.
 
+Ademas genera pz1.png (junto a --out): rendimiento de p(z=1) como detector de la fuente activa
+(lib/activation.py: p(z=1), TPR/FPR/F1 con p>=0.5, AUC por job y nº de detecciones frente a size).
+
 Uso:
     python experiments/map_experiment/aggregate_results.py
     python experiments/map_experiment/aggregate_results.py --results_dir experiments/map_experiment/results --out experiments/map_experiment/error.png
@@ -22,6 +25,7 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lib.seeds import aggregate, plot_band
+from lib.activation import plot_pz1
 
 # Deben coincidir con map_experiment.py
 A = 0.5
@@ -65,6 +69,8 @@ def main():
     fig.tight_layout()
     fig.savefig(args.out, dpi=200)
     print(f"{len(size)} sizes, {n.sum()} jobs -> {args.out}")
+
+    plot_pz1(args.results_dir, str(Path(args.out).with_name("pz1.png")), label="MAP", marker="o")
 
 
 if __name__ == "__main__":
