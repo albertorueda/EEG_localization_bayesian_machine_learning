@@ -1,27 +1,28 @@
 """
 activation_by_size.py
 
-Analisis de la deteccion de la fuente activa en funcion de `size`, SIN mezclar jobs.
-Cada fichero results/size_XXXX_seed_YY.npz es un problema independiente con z_true = [1, 0, ..., 0],
-asi que todas las metricas se calculan POR JOB y luego se agregan por (metodo, size) sobre seeds.
+Analysis of active-source detection as a function of `size`, WITHOUT pooling jobs.
+Each results/size_XXXX_seed_YY.npz file is an independent problem with z_true = [1, 0, ..., 0],
+so every metric is computed PER JOB and then aggregated per (method, size) over seeds.
 
-Por que no una ROC global: mezclar todos los sizes/seeds en una sola curva hace que los problemas
-faciles (size pequeño) compensen los dificiles (size > n_channels) y esconde justo lo interesante.
+Why not one global ROC: pooling all sizes/seeds into a single curve lets the easy problems
+(small size) compensate for the hard ones (size > n_channels) and hides the interesting part.
 
-Metricas por job:
-  - AUC       : fraccion de fuentes inactivas con puntuacion menor que la activa (empates = 0.5).
-                Con un unico positivo, esto ES el AUC de la ROC de ese job.
-  - top-1     : 1 si la fuente activa tiene la puntuacion MAXIMA (empates cuentan en contra).
-  - recall    : 1 si se detecta la fuente activa con umbral fijo (p(z=1)>=0.5, o |x|>=thr si no hay p).
-  - FP        : numero de inactivas que superan el umbral fijo.
-  - E[FP]     : sum_j p(z_j=1|y) sobre las inactivas (falsos positivos esperados; solo si hay p_z1).
-  - F1        : 2TP / (2TP + FP + FN) con el umbral fijo.
-  - p(z0=1)   : se dibuja por seed (no solo la media), para ver si es bimodal.
+Per-job metrics:
+  - AUC       : fraction of inactive sources scoring below the active one (ties = 0.5).
+                With a single positive this IS the AUC of that job's ROC curve.
+  - top-1     : 1 if the active source has the strictly highest score (ties count against it).
+  - recall    : 1 if the active source is detected at a fixed threshold
+                (p(z=1)>=0.5, or |x|>=thr for methods without p).
+  - FP        : number of inactive sources above the fixed threshold.
+  - E[FP]     : sum_j p(z_j=1|y) over inactive sources (expected false positives; only if p_z1 exists).
+  - F1        : 2TP / (2TP + FP + FN) at the fixed threshold.
+  - p(z0=1)   : plotted per seed (not only the mean) to reveal bimodality across seeds.
 
-Uso:
+Usage:
     python experiments/activation_by_size.py
     python experiments/activation_by_size.py --only map smc hmc_inverse l1 --table_sizes 50 90 150 300
-    python experiments/activation_by_size.py --use_xjmean     # usa x_j_mean en vez de la media posterior
+    python experiments/activation_by_size.py --use_xjmean     # use x_j_mean instead of the posterior mean
 """
 import argparse
 import os
@@ -35,15 +36,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Deben coincidir con los experimentos
+# Must match the experiments
 SPIKE_VAR = 0.001
 SLAB_PROB = 0.05
-ACTIVE_THR = 3 * np.sqrt(SPIKE_VAR)     # umbral fijo para |x_j|
-PZ_THR = 0.5                            # umbral fijo para p(z=1)
+ACTIVE_THR = 3 * np.sqrt(SPIKE_VAR)     # fixed threshold for |x_j|
+PZ_THR = 0.5                            # fixed threshold for p(z=1)
 
 EXP_ROOT = os.path.dirname(os.path.abspath(__file__))
 
-# clave -> (carpeta, prefijo en el .npz, etiqueta, color, marcador, estilo)
+# key -> (folder, prefix in the .npz, label, color, marker, line style)
 EXPERIMENTS = {
     "map":                 ("map_experiment",                 "map", "MAP",                         "black",      "o", "-"),
     "hmc":                 ("hmc_experiment",                 "hmc", "HMC",                         "tab:blue",   "s", "-"),
@@ -57,9 +58,9 @@ EXPERIMENTS = {
 FILE_RE = re.compile(r"size_(\d+)_seed_(\d+)\.npz$")
 
 
-# ---------------------------------------------------------------- metricas por job
+# ---------------------------------------------------------------- per-job metrics
 def auc_one_positive(s):
-    """AUC con un unico positivo (indice 0): P(score_0 > score_inactiva) + 0.5 * P(empate)."""
+    """AUC with a single positive (index 0): P(score_0 > score_inactive) + 0.5 * P(tie)."""
     neg = s[1:]
     if neg.size == 0:
         return np.nan
@@ -67,7 +68,7 @@ def auc_one_positive(s):
 
 
 def top1(s):
-    """1 si la fuente 0 es estrictamente la mayor (empates en contra)."""
+    """1 if source 0 is strictly the largest (ties count against it)."""
     return float(not np.any(s[1:] >= s[0]))
 
 
@@ -77,7 +78,7 @@ def f1_from_counts(tp, fp, fn):
 
 
 def job_metrics(x_score, pz, is_l1):
-    """x_score: |x_j| (D,), pz: p(z_j=1|y) (D,) o None."""
+    """x_score: |x_j| (D,), pz: p(z_j=1|y) (D,) or None."""
     out = {"auc_x": auc_one_positive(x_score), "top1_x": top1(x_score)}
     thr_x = 1e-12 if is_l1 else ACTIVE_THR
     det_x = x_score >= thr_x
@@ -97,9 +98,9 @@ def job_metrics(x_score, pz, is_l1):
     return out
 
 
-# ---------------------------------------------------------------- carga
+# ---------------------------------------------------------------- loading
 def collect(folder, prefix, use_xjmean):
-    """-> {size: [dict de metricas por seed]}, n_channels"""
+    """-> {size: [metrics dict per seed]}, n_channels"""
     by_size = defaultdict(list)
     n_channels = None
     for path in glob(os.path.join(EXP_ROOT, folder, "results", "size_*_seed_*.npz")):
@@ -125,7 +126,7 @@ def collect(folder, prefix, use_xjmean):
 
 
 def aggregate(by_size, key):
-    """-> sizes, mean, std (sobre seeds) para la metrica `key`; ignora jobs sin esa metrica."""
+    """-> sizes, mean, std (over seeds) of metric `key`; jobs without that metric are ignored."""
     sizes, mean, std = [], [], []
     for s in sorted(by_size):
         v = np.array([j[key] for j in by_size[s] if key in j], dtype=float)
@@ -139,7 +140,7 @@ def aggregate(by_size, key):
 
 
 def pick(by_size, key):
-    """Usa la version con p(z=1) si el metodo la tiene; si no, la version con |x_j|."""
+    """Use the p(z=1) version if the method has it; otherwise the |x_j| version."""
     has_p = any(f"{key}_p" in j for jobs in by_size.values() for j in jobs)
     return (f"{key}_p", "p(z=1)") if has_p else (f"{key}_x", "|x_j|")
 
@@ -149,9 +150,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(EXP_ROOT, "activation_by_size.png"))
     ap.add_argument("--only", nargs="+", choices=list(EXPERIMENTS))
-    ap.add_argument("--no_band", action="store_true")
+    ap.add_argument("--band", action="store_true", help="draw the +-1 std band over seeds (off by default)")
     ap.add_argument("--use_xjmean", action="store_true",
-                    help="usar x_j_mean (media condicional a z=1) como puntuacion |x_j| cuando exista")
+                    help="use x_j_mean (posterior mean conditional on z=1) as the |x_j| score when available")
     ap.add_argument("--table_sizes", type=int, nargs="*", default=[50, 90, 150, 300])
     args = ap.parse_args()
 
@@ -165,7 +166,7 @@ def main():
         folder, prefix, label, color, marker, ls = EXPERIMENTS[k]
         by_size, nc = collect(folder, prefix, args.use_xjmean)
         if not by_size:
-            print(f"[aviso] sin resultados para '{k}' -> se omite")
+            print(f"[warning] no results for '{k}' -> skipped")
             continue
         n_channels = n_channels or nc
         kw = dict(color=color, marker=marker, ls=ls, ms=3.5, lw=1.4,
@@ -176,10 +177,10 @@ def main():
             if s.size == 0:
                 return
             ax.plot(s, m, label=f"{label}{lab_suffix}", **kw)
-            if not args.no_band:
+            if args.band:
                 ax.fill_between(s, m - sd, m + sd, color=color, alpha=0.12, lw=0)
 
-        draw(ax_auc_p, "auc_p")                                   # solo metodos con p(z=1)
+        draw(ax_auc_p, "auc_p")                                   # only methods with p(z=1)
         draw(ax_auc_x, "auc_x")
         top_key, crit = pick(by_size, "top1")
         draw(ax_top1, top_key, f" [{crit}]")
@@ -188,7 +189,7 @@ def main():
         fp_key, crit = pick(by_size, "fp")
         draw(ax_fp, fp_key, f" [{crit}]")
 
-        # p(z0=1) por seed + mediana
+        # p(z0=1) per seed + median
         xs, ys = [], []
         for s in sorted(by_size):
             for j in by_size[s]:
@@ -200,9 +201,9 @@ def main():
             xs, ys = np.array(xs), np.array(ys)
             uniq = np.unique(xs)
             ax_pz0.plot(uniq, [np.median(ys[xs == u]) for u in uniq], color=color, lw=1.6,
-                        marker=marker, ms=3, mfc="white" if ls == "--" else color, label=f"{label} (mediana)")
+                        marker=marker, ms=3, mfc="white" if ls == "--" else color, label=f"{label} (median)")
 
-        # tabla en sizes cercanos a los pedidos
+        # table at the sizes closest to the requested ones
         avail = np.array(sorted(by_size))
         for ts in args.table_sizes:
             s = int(avail[np.argmin(np.abs(avail - ts))])
@@ -211,15 +212,15 @@ def main():
             table.append((label, s, len(by_size[s]), row))
 
     if not table:
-        raise FileNotFoundError("No se ha encontrado ningun resultado.")
+        raise FileNotFoundError("No results found.")
 
     titles = [
-        (ax_auc_p, "AUC por size: ranking con p(z=1)", "AUC (media sobre seeds)"),
-        (ax_auc_x, r"AUC por size: ranking con $|x_j|$", "AUC (media sobre seeds)"),
-        (ax_top1, "Fuente activa en 1a posicion", "fraccion de seeds"),
-        (ax_rec, "Deteccion con umbral fijo (recall)", "fraccion de seeds"),
-        (ax_fp, "Falsos positivos con umbral fijo", "# inactivas detectadas"),
-        (ax_pz0, r"$p(z_0=1)$ por seed (puntos) y mediana", r"$p(z_0=1)$"),
+        (ax_auc_p, "AUC per size: ranking with p(z=1)", "AUC (mean over seeds)"),
+        (ax_auc_x, r"AUC per size: ranking with $|x_j|$", "AUC (mean over seeds)"),
+        (ax_top1, "Active source ranked 1st", "fraction of seeds"),
+        (ax_rec, "Detection at fixed threshold (recall)", "fraction of seeds"),
+        (ax_fp, "False positives at fixed threshold", "# inactive sources detected"),
+        (ax_pz0, r"$p(z_0=1)$ per seed (dots) and median", r"$p(z_0=1)$"),
     ]
     for ax, t, yl in titles:
         ax.set_title(t, fontsize=10)
@@ -228,16 +229,14 @@ def main():
         if n_channels is not None:
             ax.axvline(n_channels, color="gray", ls=":", lw=1.2)
     for ax in (ax_auc_p, ax_auc_x):
-        ax.axhline(0.5, color="k", ls=":", lw=0.8)          # azar
+        ax.axhline(0.5, color="k", ls=":", lw=0.8)          # chance level
         ax.set_ylim(0.4, 1.02)
     for ax in (ax_top1, ax_rec):
         ax.set_ylim(-0.02, 1.02)
     ax_pz0.axhline(SLAB_PROB, color="tab:orange", ls="--", lw=1.2, label=f"prior pi={SLAB_PROB}")
     ax_pz0.axhline(PZ_THR, color="gray", ls="--", lw=0.8)
     ax_pz0.set_ylim(-0.02, 1.02)
-    for ax in (ax_fp, ax_pz0, ax_rec):
-        ax.set_xlabel("size (number of sources)")
-    for ax in (ax_auc_p, ax_auc_x, ax_top1):
+    for ax in axes.ravel():
         ax.set_xlabel("size (number of sources)")
 
     h, l = [], []
@@ -250,8 +249,8 @@ def main():
     fig.tight_layout(rect=(0, 0.1, 1, 1))
     fig.savefig(args.out, dpi=180)
 
-    # --- tabla
-    print(f"\nUmbrales fijos: p(z=1)>={PZ_THR}; |x_j|>={ACTIVE_THR:.3f} (L1: x_j != 0). Medias sobre seeds.")
+    # --- table
+    print(f"\nFixed thresholds: p(z=1)>={PZ_THR}; |x_j|>={ACTIVE_THR:.3f} (L1: x_j != 0). Means over seeds.")
     print(f"{'method':30s} {'size':>5s} {'seeds':>5s} {'AUC_x':>6s} {'AUC_p':>6s} {'rec_p':>6s} {'rec_x':>6s} "
           f"{'FP_p':>6s} {'FP_x':>6s} {'E[FP]':>7s} {'F1_p':>6s} {'F1_x':>6s} {'p(z0)':>6s}")
     f = lambda v: "   -  " if np.isnan(v) else f"{v:6.2f}"
